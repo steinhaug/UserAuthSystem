@@ -12,6 +12,9 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { DEVELOPMENT_MODE } from '@/lib/constants';
 
+// Set Mapbox token globally
+mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || '';
+
 export default function MapView() {
   const { currentUser } = useAuth();
   const [, setLocation] = useLocation();
@@ -208,19 +211,24 @@ export default function MapView() {
   useEffect(() => {
     if (!mapContainerRef.current) return;
     
-    // Set Mapbox access token
-    mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
-    
-    // Initialize map
-    map.current = new mapboxgl.Map({
-      container: mapContainerRef.current,
-      style: 'mapbox://styles/mapbox/streets-v12',
-      center: [10.7522, 59.9139], // default to Oslo
-      zoom: 12
-    });
-    
-    // Add navigation controls
-    map.current.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
+    try {
+      console.log("Initializing map with token:", mapboxgl.accessToken.substring(0, 10) + '...');
+      
+      // Initialize map
+      map.current = new mapboxgl.Map({
+        container: mapContainerRef.current,
+        style: 'mapbox://styles/mapbox/streets-v12',
+        center: [10.7522, 59.9139], // default to Oslo
+        zoom: 12
+      });
+      
+      // Add navigation controls
+      map.current.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
+      
+      console.log("Map initialized successfully");
+    } catch (error) {
+      console.error("Error initializing map:", error);
+    }
     
     // Clean up on unmount
     return () => {

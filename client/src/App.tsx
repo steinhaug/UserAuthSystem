@@ -7,6 +7,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { BluetoothProvider } from "@/contexts/BluetothContext";
 import { LocationProvider } from "@/contexts/LocationContext";
 import MapView from "@/pages/map/MapView";
+import SimpleMapView from "@/pages/map/SimpleMapView";
 import NearbyView from "@/pages/nearby/NearbyView";
 import ActivitiesView from "@/pages/activities/ActivitiesView";
 import CreateActivity from "@/pages/activities/CreateActivity";
@@ -29,6 +30,14 @@ function App() {
             
             {/* App routes - all wrapped in AppLayout for navigation */}
             <Route path="/map">
+              {() => (
+                <AppLayout>
+                  <SimpleMapView />
+                </AppLayout>
+              )}
+            </Route>
+            
+            <Route path="/fullmap">
               {() => (
                 <AppLayout>
                   <MapView />
