@@ -1,187 +1,390 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { useWebSocket } from './use-websocket';
+import { useMessageDelivery } from './use-message-delivery';
 import { DEVELOPMENT_MODE } from '@/lib/constants';
 
-export interface ChatMessage {
+// Message type with status tracking for UI
+export interface ChatMessageWithStatus {
   id: string;
-  threadId: string;
-  senderId: string;
   content: string;
-  sentAt: Date;
-  isRead: boolean;
+  senderId: string;
+  recipientId: string;
+  timestamp: number;
+  senderName?: string;
+  status: 'sent' | 'delivered' | 'read' | 'pending' | 'failed';
 }
 
-interface UseChatWebSocketReturn {
-  sendMessage: (threadId: string, recipientId: string, content: string) => void;
-  messages: Record<string, ChatMessage[]>; // threadId -> messages
+// Return type for the hook
+interface ChatWebSocketReturn {
+  messages: Record<string, ChatMessageWithStatus[]>;
+  pendingMessages: string[];
   isConnected: boolean;
+  sendMessage: (threadId: string, recipientId: string, content: string) => void;
+  resendMessage: (messageId: string, threadId: string, recipientId: string, content: string) => void;
 }
 
-export function useChatWebSocket(): UseChatWebSocketReturn {
+export function useChatWebSocket(): ChatWebSocketReturn {
   const { currentUser } = useAuth();
-  const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({});
-  const { connected, sendMessage: wsSendMessage } = useWebSocket(handleWebSocketMessage);
+  const [messages, setMessages] = useState<Record<string, ChatMessageWithStatus[]>>({});
+  const [isConnected, setIsConnected] = useState(DEVELOPMENT_MODE); // In dev mode, always appear connected
+  const [socket, setSocket] = useState<WebSocket | null>(null);
   
-  // Handle incoming WebSocket messages
-  function handleWebSocketMessage(data: any) {
-    if (data.type === 'new_message' && data.message) {
-      const { threadId } = data.message;
-      
-      setMessages(prevMessages => {
-        const threadMessages = prevMessages[threadId] || [];
+  // Use our message delivery tracking hook
+  const { messageStatuses, pendingMessages, trackMessage, resendMessage: resendMessageDelivery } = useMessageDelivery();
+  
+  // Connect to WebSocket server in production mode
+  useEffect(() => {
+    if (!currentUser || DEVELOPMENT_MODE) {
+      if (DEVELOPMENT_MODE) {
+        console.log('Chat websocket disabled in development mode, using simulated messages');
         
-        // Check if we already have this message (prevents duplicates)
-        if (!threadMessages.some(msg => msg.id === data.message.id)) {
-          return {
-            ...prevMessages,
-            [threadId]: [...threadMessages, formatMessage(data.message)]
-          };
+        // In development mode, populate with demo messages
+        setMessages({
+          'demo-thread': [
+            {
+              id: 'demo-1',
+              content: 'Hello! Welcome to the enhanced chat demo.',
+              senderId: 'system',
+              recipientId: currentUser?.uid || 'current-user',
+              timestamp: Date.now() - 3600000, // 1 hour ago
+              status: 'delivered',
+              senderName: 'System'
+            },
+            {
+              id: 'demo-2',
+              content: 'This chat simulates message delivery status tracking.',
+              senderId: 'system',
+              recipientId: currentUser?.uid || 'current-user',
+              timestamp: Date.now() - 1800000, // 30 min ago
+              status: 'read',
+              senderName: 'System'
+            },
+            {
+              id: 'demo-3',
+              content: 'Try sending a message to see delivery status updates!',
+              senderId: 'system',
+              recipientId: currentUser?.uid || 'current-user',
+              timestamp: Date.now() - 60000, // 1 min ago
+              status: 'delivered',
+              senderName: 'System'
+            }
+          ]
+        });
+      }
+      return;
+    }
+    
+    // Production mode WebSocket connection
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const ws = new WebSocket(wsUrl);
+    
+    // Connection opened handler
+    ws.addEventListener('open', () => {
+      console.log('Chat WebSocket connected');
+      setIsConnected(true);
+      
+      // Authenticate
+      ws.send(JSON.stringify({
+        type: 'authenticate',
+        token: currentUser.uid
+      }));
+      
+      // Request message history
+      ws.send(JSON.stringify({
+        type: 'get_messages'
+      }));
+    });
+    
+    // Message received handler
+    ws.addEventListener('message', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        // Handle message history
+        if (data.type === 'message_history') {
+          // Group messages by thread ID
+          const messagesByThread: Record<string, ChatMessageWithStatus[]> = {};
+          
+          // Process messages
+          if (data.messages && Array.isArray(data.messages)) {
+            data.messages.forEach((msg: any) => {
+              const threadId = msg.threadId || 'default';
+              
+              if (!messagesByThread[threadId]) {
+                messagesByThread[threadId] = [];
+              }
+              
+              messagesByThread[threadId].push({
+                id: msg.id.toString(),
+                content: msg.content,
+                senderId: msg.senderId,
+                recipientId: msg.recipientId,
+                timestamp: new Date(msg.timestamp || msg.createdAt).getTime(),
+                status: msg.status || 'delivered',
+                senderName: msg.senderName
+              });
+            });
+          }
+          
+          setMessages(messagesByThread);
         }
         
-        return prevMessages;
-      });
-    }
-  }
-  
-  // Format incoming message objects
-  const formatMessage = useCallback((message: any): ChatMessage => {
-    return {
-      id: message.id,
-      threadId: message.threadId,
-      senderId: message.senderId,
-      content: message.content,
-      sentAt: new Date(message.sentAt),
-      isRead: message.isRead || false
-    };
-  }, []);
-  
-  // Function to send a chat message
-  const sendMessage = useCallback((threadId: string, recipientId: string, content: string) => {
-    if (DEVELOPMENT_MODE) {
-      // In development mode, simulate sending/receiving messages locally
-      const mockMessage: ChatMessage = {
-        id: `mock-${Date.now()}`,
-        threadId,
-        senderId: currentUser?.uid || 'unknown',
-        content,
-        sentAt: new Date(),
-        isRead: false
-      };
-      
-      setMessages(prevMessages => {
-        const threadMessages = prevMessages[threadId] || [];
-        return {
-          ...prevMessages,
-          [threadId]: [...threadMessages, mockMessage]
-        };
-      });
-      
-      // Simulate a response after a delay
-      setTimeout(() => {
-        const mockResponse: ChatMessage = {
-          id: `mock-response-${Date.now()}`,
-          threadId,
-          senderId: recipientId,
-          content: `Auto-reply to: ${content}`,
-          sentAt: new Date(),
-          isRead: false
-        };
+        // Handle new message
+        else if (data.type === 'new_message') {
+          const { message } = data;
+          const threadId = message.threadId || 'default';
+          
+          // Update messages
+          setMessages(prev => {
+            const updatedMessages = { ...prev };
+            
+            if (!updatedMessages[threadId]) {
+              updatedMessages[threadId] = [];
+            }
+            
+            // Add new message
+            updatedMessages[threadId] = [
+              ...updatedMessages[threadId], 
+              {
+                id: message.id.toString(),
+                content: message.content,
+                senderId: message.senderId,
+                recipientId: message.recipientId,
+                timestamp: new Date(message.timestamp || message.createdAt).getTime(),
+                status: message.status || 'delivered',
+                senderName: message.senderName
+              }
+            ];
+            
+            return updatedMessages;
+          });
+          
+          // If this is not our message, mark as delivered
+          if (message.senderId !== currentUser.uid) {
+            ws.send(JSON.stringify({
+              type: 'message_received',
+              messageId: message.id.toString()
+            }));
+          }
+        }
         
-        setMessages(prevMessages => {
-          const threadMessages = prevMessages[threadId] || [];
-          return {
-            ...prevMessages,
-            [threadId]: [...threadMessages, mockResponse]
-          };
+      } catch (error) {
+        console.error('Error processing chat WebSocket message:', error);
+      }
+    });
+    
+    // Error handler
+    ws.addEventListener('error', (error) => {
+      console.error('Chat WebSocket error:', error);
+      setIsConnected(false);
+    });
+    
+    // Close handler
+    ws.addEventListener('close', () => {
+      console.log('Chat WebSocket connection closed');
+      setIsConnected(false);
+    });
+    
+    setSocket(ws);
+    
+    // Cleanup
+    return () => {
+      ws.close();
+    };
+  }, [currentUser]);
+  
+  // Keep track of message statuses and update message status in our state
+  useEffect(() => {
+    // Update message statuses based on delivery tracking
+    Object.entries(messageStatuses).forEach(([messageId, status]) => {
+      setMessages(prev => {
+        const updatedMessages = { ...prev };
+        
+        // Find the message in all threads
+        Object.keys(updatedMessages).forEach(threadId => {
+          const messageIndex = updatedMessages[threadId].findIndex(
+            msg => msg.id === messageId
+          );
+          
+          // Update message status if found
+          if (messageIndex !== -1) {
+            updatedMessages[threadId] = [
+              ...updatedMessages[threadId].slice(0, messageIndex),
+              {
+                ...updatedMessages[threadId][messageIndex],
+                status: status.status
+              },
+              ...updatedMessages[threadId].slice(messageIndex + 1)
+            ];
+          }
         });
-      }, 1000);
+        
+        return updatedMessages;
+      });
+    });
+  }, [messageStatuses]);
+  
+  // Keep connection alive with heartbeat
+  useEffect(() => {
+    if (!socket || !isConnected || DEVELOPMENT_MODE) return;
+    
+    const interval = setInterval(() => {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+          type: 'heartbeat',
+          timestamp: Date.now()
+        }));
+      }
+    }, 30000); // 30 seconds
+    
+    return () => clearInterval(interval);
+  }, [socket, isConnected]);
+  
+  // Send message function
+  const sendMessage = useCallback((
+    threadId: string,
+    recipientId: string,
+    content: string
+  ) => {
+    if (!content.trim()) return;
+    
+    const messageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // In development mode, simulate sending
+    if (DEVELOPMENT_MODE) {
+      // Add message to UI immediately
+      setMessages(prev => {
+        const updatedMessages = { ...prev };
+        
+        if (!updatedMessages[threadId]) {
+          updatedMessages[threadId] = [];
+        }
+        
+        // Add new message with pending status
+        updatedMessages[threadId] = [
+          ...updatedMessages[threadId],
+          {
+            id: messageId,
+            content,
+            senderId: currentUser?.uid || 'current-user',
+            recipientId,
+            timestamp: Date.now(),
+            status: 'pending',
+            senderName: currentUser?.displayName || 'You'
+          }
+        ];
+        
+        return updatedMessages;
+      });
+      
+      // Track with message delivery
+      trackMessage(messageId);
       
       return;
     }
     
-    // In production mode, send the message through WebSocket
-    if (connected) {
-      wsSendMessage({
+    // Production behavior
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      // Add message to UI immediately with pending status
+      setMessages(prev => {
+        const updatedMessages = { ...prev };
+        
+        if (!updatedMessages[threadId]) {
+          updatedMessages[threadId] = [];
+        }
+        
+        updatedMessages[threadId] = [
+          ...updatedMessages[threadId],
+          {
+            id: messageId,
+            content,
+            senderId: currentUser?.uid || 'current-user',
+            recipientId,
+            timestamp: Date.now(),
+            status: 'pending',
+            senderName: currentUser?.displayName || 'You'
+          }
+        ];
+        
+        return updatedMessages;
+      });
+      
+      // Send via WebSocket
+      socket.send(JSON.stringify({
         type: 'chat_message',
+        messageId,
         threadId,
         recipientId,
         content
-      });
+      }));
       
-      // Optimistically add the message to the state
-      const pendingMessage: ChatMessage = {
-        id: `pending-${Date.now()}`,
-        threadId,
-        senderId: currentUser?.uid || 'unknown',
-        content,
-        sentAt: new Date(),
-        isRead: false
-      };
-      
-      setMessages(prevMessages => {
-        const threadMessages = prevMessages[threadId] || [];
-        return {
-          ...prevMessages,
-          [threadId]: [...threadMessages, pendingMessage]
-        };
-      });
+      // Track with message delivery
+      trackMessage(messageId);
     } else {
-      console.warn('WebSocket not connected, message not sent');
-    }
-  }, [connected, currentUser, wsSendMessage]);
-  
-  // Load initial messages from API when component mounts
-  useEffect(() => {
-    if (!currentUser) return;
-    
-    const loadMessages = async () => {
-      try {
-        // In a real app, fetch chat threads from the API
-        if (!DEVELOPMENT_MODE) {
-          // Example API call to load messages
-          // const response = await fetch('/api/chat/threads');
-          // const threads = await response.json();
-          
-          // Process and set messages from each thread
-          // ... 
-        } else {
-          // In development mode, use mock data
-          const mockThreadId = 'mock-thread-1';
-          const mockMessages: ChatMessage[] = [
-            {
-              id: 'mock-1',
-              threadId: mockThreadId,
-              senderId: 'mock-user-1',
-              content: 'Hello! This is a mock message.',
-              sentAt: new Date(Date.now() - 3600000), // 1 hour ago
-              isRead: true
-            },
-            {
-              id: 'mock-2',
-              threadId: mockThreadId,
-              senderId: currentUser.uid,
-              content: 'Hi there! This is a response.',
-              sentAt: new Date(Date.now() - 3500000), // 58 minutes ago
-              isRead: true
-            }
-          ];
-          
-          setMessages({
-            [mockThreadId]: mockMessages
-          });
+      // WebSocket not connected, add as failed
+      setMessages(prev => {
+        const updatedMessages = { ...prev };
+        
+        if (!updatedMessages[threadId]) {
+          updatedMessages[threadId] = [];
         }
-      } catch (error) {
-        console.error('Error loading chat messages:', error);
+        
+        updatedMessages[threadId] = [
+          ...updatedMessages[threadId],
+          {
+            id: messageId,
+            content,
+            senderId: currentUser?.uid || 'current-user',
+            recipientId,
+            timestamp: Date.now(),
+            status: 'failed',
+            senderName: currentUser?.displayName || 'You'
+          }
+        ];
+        
+        return updatedMessages;
+      });
+    }
+  }, [currentUser, socket, trackMessage]);
+  
+  // Resend message function
+  const resendMessage = useCallback((
+    messageId: string,
+    threadId: string,
+    recipientId: string,
+    content: string
+  ) => {
+    // Update UI first
+    setMessages(prev => {
+      const updatedMessages = { ...prev };
+      
+      // Find the message
+      const threadMessages = updatedMessages[threadId] || [];
+      const messageIndex = threadMessages.findIndex(msg => msg.id === messageId);
+      
+      if (messageIndex !== -1) {
+        // Update status to pending
+        threadMessages[messageIndex] = {
+          ...threadMessages[messageIndex],
+          status: 'pending'
+        };
+        
+        updatedMessages[threadId] = [...threadMessages];
       }
-    };
+      
+      return updatedMessages;
+    });
     
-    loadMessages();
-  }, [currentUser]);
+    // Use delivery tracking to resend
+    resendMessageDelivery(messageId, content, recipientId, threadId);
+  }, [resendMessageDelivery]);
   
   return {
-    sendMessage,
     messages,
-    isConnected: connected
+    pendingMessages,
+    isConnected,
+    sendMessage,
+    resendMessage
   };
 }

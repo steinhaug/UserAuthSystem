@@ -5,7 +5,8 @@ import {
   updateProfile,
   onAuthStateChanged,
   GoogleAuthProvider,
-  signInWithPopup
+  signInWithPopup,
+  sendPasswordResetEmail
 } from "firebase/auth";
 import { 
   collection, 
@@ -70,6 +71,16 @@ export const updateUserProfile = (displayName: string, photoURL?: string) => {
 
 export const logoutUser = () => {
   return signOut(auth);
+};
+
+export const sendResetPasswordEmail = async (email: string) => {
+  try {
+    await sendPasswordResetEmail(auth, email);
+    return true;
+  } catch (error) {
+    console.error('Error sending password reset email:', error);
+    throw error;
+  }
 };
 
 // Firestore helpers

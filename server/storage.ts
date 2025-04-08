@@ -53,6 +53,11 @@ export interface IStorage {
   getChatMessagesByThreadId(threadId: string): Promise<ChatMessage[]>;
   createChatThread(thread: InsertChatThread): Promise<ChatThread>;
   createChatMessage(message: InsertChatMessage): Promise<ChatMessage>;
+  getChatMessageById(messageId: string): Promise<ChatMessage | undefined>;
+  markMessageAsRead(messageId: string, userId: string): Promise<void>;
+  markMessageAsPending(messageId: string): Promise<void>;
+  getPendingMessagesForUser(userId: string): Promise<ChatMessage[]>;
+  markMessagesAsDelivered(userId: string, messageIds: string[]): Promise<void>;
   
   // Challenge methods
   getChallenges(): Promise<Challenge[]>;
@@ -66,7 +71,7 @@ export interface IStorage {
 }
 
 import { db } from "./db";
-import { eq, or, and } from "drizzle-orm";
+import { eq, or, and, inArray } from "drizzle-orm";
 import { handleDatabaseOperation } from "./utils/errorHandler";
 
 export class DatabaseStorage implements IStorage {
@@ -227,6 +232,84 @@ export class DatabaseStorage implements IStorage {
       `Failed to create chat message in thread: ${message.threadId}`,
       'message-creation'
     );
+  }
+
+  async getChatMessageById(messageId: string): Promise<ChatMessage | undefined> {
+    const [message] = await db
+      .select()
+      .from(chatMessages)
+      .where(eq(chatMessages.id, parseInt(messageId)));
+    return message;
+  }
+
+  async markMessageAsRead(messageId: string, userId: string): Promise<void> {
+    const now = new Date();
+    await db
+      .update(chatMessages)
+      .set({ 
+        read: true,
+        readAt: now,
+        updatedAt: now
+      })
+      .where(
+        and(
+          eq(chatMessages.id, parseInt(messageId)),
+          eq(chatMessages.receiverId, userId)
+        )
+      );
+  }
+
+  async markMessageAsPending(messageId: string): Promise<void> {
+    const now = new Date();
+    await db
+      .update(chatMessages)
+      .set({ 
+        status: 'pending',
+        updatedAt: now
+      })
+      .where(eq(chatMessages.id, parseInt(messageId)));
+  }
+
+  async getPendingMessagesForUser(userId: string): Promise<ChatMessage[]> {
+    return db
+      .select()
+      .from(chatMessages)
+      .where(
+        and(
+          eq(chatMessages.receiverId, userId),
+          eq(chatMessages.status, 'pending')
+        )
+      );
+  }
+
+  async markMessagesAsDelivered(userId: string, messageIds: string[]): Promise<void> {
+    // Convert string ids to numbers
+    const numericIds = messageIds.map(id => parseInt(id));
+    const now = new Date();
+    
+    await db
+      .update(chatMessages)
+      .set({ 
+        status: 'delivered',
+        deliveredAt: now,
+        updatedAt: now
+      })
+      .where(
+        and(
+          eq(chatMessages.receiverId, userId),
+          inArray(chatMessages.id, numericIds)
+        )
+      );
+  }
+
+  async updateUserStatus(userId: string, status: string): Promise<void> {
+    await db
+      .update(users)
+      .set({ 
+        status,
+        lastSeen: new Date()
+      })
+      .where(eq(users.firebaseId, userId));
   }
 
   // Challenge methods

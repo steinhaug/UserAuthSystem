@@ -1,17 +1,30 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { User as FirebaseUser } from 'firebase/auth';
-import { auth, createUserDocument, logoutUser as firebaseLogout } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { User as FirebaseUser, onAuthStateChanged, getAuth } from 'firebase/auth';
+import { 
+  auth, 
+  createUserDocument, 
+  logoutUser as firebaseLogout, 
+  sendResetPasswordEmail,
+  updateUserProfile as firebaseUpdateProfile
+} from '@/lib/firebase';
+import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { User } from '@/types';
 import { DEVELOPMENT_MODE } from '@/lib/constants';
+
+// Session constants
+const SESSION_STORAGE_KEY = 'comemingel_session';
+const SESSION_EXPIRY_HOURS = 24; // Session expires after 24 hours
 
 interface AuthContextType {
   currentUser: FirebaseUser | null;
   userProfile: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isDevMode: boolean;
   logout: () => Promise<void>;
+  updateProfile: (data: Partial<User>) => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -19,7 +32,10 @@ const AuthContext = createContext<AuthContextType>({
   userProfile: null,
   isAuthenticated: false,
   isLoading: true,
-  logout: async () => {}
+  isDevMode: DEVELOPMENT_MODE,
+  logout: async () => {},
+  updateProfile: async () => {},
+  resetPassword: async () => {}
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -32,6 +48,58 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [userProfile, setUserProfile] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Function to update the user profile
+  const updateProfile = async (data: Partial<User>): Promise<void> => {
+    if (!currentUser) throw new Error("No user logged in");
+    
+    try {
+      if (DEVELOPMENT_MODE) {
+        // In dev mode, just update the local state
+        if (userProfile) {
+          const updatedProfile = { ...userProfile, ...data };
+          setUserProfile(updatedProfile);
+        }
+        return;
+      }
+      
+      // In production, update the Firebase user profile if display name is provided
+      if (data.displayName) {
+        await firebaseUpdateProfile(data.displayName, data.photoURL || "");
+      }
+      
+      // Update user document in Firestore
+      const userRef = doc(db, "users", currentUser.uid);
+      await updateDoc(userRef, {
+        ...data,
+        updatedAt: serverTimestamp()
+      });
+      
+      // Fetch updated profile
+      const userDoc = await getDoc(userRef);
+      if (userDoc.exists()) {
+        setUserProfile({ id: currentUser.uid, ...userDoc.data() } as User);
+      }
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      throw error;
+    }
+  };
+
+  // Function to handle password reset
+  const resetPassword = async (email: string): Promise<void> => {
+    try {
+      if (DEVELOPMENT_MODE) {
+        console.log("Password reset requested for:", email);
+        return;
+      }
+      
+      await sendResetPasswordEmail(email);
+    } catch (error) {
+      console.error("Error resetting password:", error);
+      throw error;
+    }
+  };
 
   // Function to handle logout
   const logout = async (): Promise<void> => {
@@ -137,7 +205,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     userProfile,
     isAuthenticated: !!currentUser || (DEVELOPMENT_MODE && shouldLoadDevUser()),
     isLoading,
-    logout
+    isDevMode: DEVELOPMENT_MODE,
+    logout,
+    updateProfile,
+    resetPassword
   };
 
   return (

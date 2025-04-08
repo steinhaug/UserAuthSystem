@@ -272,20 +272,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
     path: '/ws' 
   });
   
-  // Connected clients with their user IDs
-  const clients = new Map<WebSocket, { userId: string }>();
+  // Connected clients with their user IDs and additional data
+  const clients = new Map<WebSocket, { 
+    userId: string;
+    lastActivity: number;
+    authenticated: boolean;
+    subscriptions: string[]; // Topics/channels the client is subscribed to
+  }>();
+  
+  // Set up ping interval to keep connections alive
+  const pingInterval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      // Check if the client is still active
+      const clientInfo = clients.get(ws);
+      if (clientInfo) {
+        // If inactive for 5 minutes, close the connection
+        if (Date.now() - clientInfo.lastActivity > 5 * 60 * 1000) {
+          console.log(`Closing inactive connection for user: ${clientInfo.userId}`);
+          ws.terminate();
+          return;
+        }
+        
+        // Send ping
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.ping();
+        }
+      }
+    });
+  }, 30000); // Check every 30 seconds
+  
+  // Handle WebSocket server shutdown
+  httpServer.on('close', () => {
+    clearInterval(pingInterval);
+  });
   
   wss.on('connection', (ws, req) => {
     console.log('WebSocket client connected');
     
-    // Add client to the clients Map with a placeholder userId
-    clients.set(ws, { userId: 'unknown' });
+    // Add client to the clients Map with initial data
+    clients.set(ws, { 
+      userId: 'unknown',
+      lastActivity: Date.now(),
+      authenticated: false,
+      subscriptions: []
+    });
+    
+    // Handle pong messages to keep track of active connections
+    ws.on('pong', () => {
+      const clientInfo = clients.get(ws);
+      if (clientInfo) {
+        clientInfo.lastActivity = Date.now();
+        clients.set(ws, clientInfo);
+      }
+    });
     
     // Handle messages from clients
     ws.on('message', async (message) => {
       try {
         const data = JSON.parse(message.toString());
-        console.log('Received message:', data);
+        console.log('Received message type:', data.type);
+        
+        // Update last activity timestamp
+        const clientInfo = clients.get(ws);
+        if (clientInfo) {
+          clientInfo.lastActivity = Date.now();
+          clients.set(ws, clientInfo);
+        }
         
         // Handle authentication message
         if (data.type === 'authenticate') {
@@ -296,16 +348,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const userId = decodedToken.uid;
               
               // Update client info with the authenticated user ID
-              clients.set(ws, { userId });
+              clients.set(ws, { 
+                ...clientInfo!,
+                userId,
+                authenticated: true 
+              });
               
               // Send authentication confirmation
               ws.send(JSON.stringify({ 
                 type: 'authentication_result', 
                 success: true,
-                userId 
+                userId
               }));
               
               console.log(`Client authenticated: ${userId}`);
+              
+              // Send any pending messages for the user
+              const pendingMessages = await storage.getPendingMessagesForUser(userId);
+              if (pendingMessages && pendingMessages.length > 0) {
+                ws.send(JSON.stringify({
+                  type: 'pending_messages',
+                  messages: pendingMessages
+                }));
+                
+                // Mark messages as delivered
+                await storage.markMessagesAsDelivered(userId, pendingMessages.map(m => m.id.toString()));
+              }
             } catch (error) {
               console.error('Authentication error:', error);
               ws.send(JSON.stringify({ 
@@ -317,16 +385,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         
+        // Handle channel subscription
+        else if (data.type === 'subscribe') {
+          if (!clientInfo || !clientInfo.authenticated) {
+            ws.send(JSON.stringify({
+              type: 'error',
+              code: 'NOT_AUTHENTICATED',
+              message: 'Authentication required'
+            }));
+            return;
+          }
+          
+          if (data.channel) {
+            // Add channel to subscriptions
+            if (!clientInfo.subscriptions.includes(data.channel)) {
+              clientInfo.subscriptions.push(data.channel);
+              clients.set(ws, clientInfo);
+            }
+            
+            ws.send(JSON.stringify({
+              type: 'subscription_result',
+              channel: data.channel,
+              success: true
+            }));
+          }
+        }
+        
         // Handle location update
         else if (data.type === 'location_update') {
-          const clientInfo = clients.get(ws);
+          if (!clientInfo || !clientInfo.authenticated) {
+            ws.send(JSON.stringify({
+              type: 'error',
+              code: 'NOT_AUTHENTICATED',
+              message: 'Authentication required'
+            }));
+            return;
+          }
           
-          if (clientInfo && clientInfo.userId !== 'unknown') {
+          try {
             // Store the location update
             await storage.updateUserLocation(clientInfo.userId, {
               latitude: data.latitude,
               longitude: data.longitude
             });
+            
+            // Send confirmation to the client
+            ws.send(JSON.stringify({
+              type: 'location_update_result',
+              success: true,
+              timestamp: Date.now()
+            }));
             
             // Broadcast to nearby users if needed
             broadcastToNearbyUsers(clientInfo.userId, {
@@ -335,51 +443,176 @@ export async function registerRoutes(app: Express): Promise<Server> {
               location: {
                 latitude: data.latitude,
                 longitude: data.longitude
-              }
+              },
+              timestamp: Date.now()
             });
+          } catch (error) {
+            console.error('Error updating location:', error);
+            ws.send(JSON.stringify({
+              type: 'location_update_result',
+              success: false,
+              error: 'Failed to update location'
+            }));
           }
         }
         
         // Handle chat message
         else if (data.type === 'chat_message') {
-          const clientInfo = clients.get(ws);
-          
-          if (clientInfo && clientInfo.userId !== 'unknown' && data.recipientId) {
-            // Store the message in the database
-            const message = await storage.createChatMessage({
-              threadId: data.threadId,
-              senderId: clientInfo.userId,
-              content: data.content,
-              sentAt: new Date()
-            });
-            
-            // Send the message to the recipient if they're online
-            sendToUser(data.recipientId, {
-              type: 'new_message',
-              message
-            });
+          if (!clientInfo || !clientInfo.authenticated) {
+            ws.send(JSON.stringify({
+              type: 'error',
+              code: 'NOT_AUTHENTICATED',
+              message: 'Authentication required'
+            }));
+            return;
           }
+          
+          if (data.recipientId && data.threadId && data.content) {
+            try {
+              // Create a message object
+              const messageData = {
+                threadId: data.threadId,
+                senderId: clientInfo.userId,
+                content: data.content,
+                receiverId: data.recipientId,
+                status: "sent",
+                read: false
+              };
+              
+              // Store the message in the database
+              const message = await storage.createChatMessage(messageData);
+              
+              // Send confirmation to the sender
+              ws.send(JSON.stringify({
+                type: 'message_sent',
+                success: true,
+                messageId: message.id,
+                timestamp: Date.now()
+              }));
+              
+              // Send the message to the recipient if they're online
+              const delivered = sendToUser(data.recipientId, {
+                type: 'new_message',
+                message,
+                timestamp: Date.now()
+              });
+              
+              // If not delivered, mark as pending
+              if (!delivered) {
+                await storage.markMessageAsPending(message.id.toString());
+              }
+            } catch (error) {
+              console.error('Error sending chat message:', error);
+              ws.send(JSON.stringify({
+                type: 'message_sent',
+                success: false,
+                error: 'Failed to send message'
+              }));
+            }
+          } else {
+            ws.send(JSON.stringify({
+              type: 'error',
+              code: 'INVALID_MESSAGE',
+              message: 'Missing required fields for message'
+            }));
+          }
+        }
+        
+        // Handle message read status
+        else if (data.type === 'mark_message_read') {
+          if (!clientInfo || !clientInfo.authenticated) {
+            ws.send(JSON.stringify({
+              type: 'error',
+              code: 'NOT_AUTHENTICATED',
+              message: 'Authentication required'
+            }));
+            return;
+          }
+          
+          if (data.messageId) {
+            try {
+              // Update message status in database
+              await storage.markMessageAsRead(data.messageId, clientInfo.userId);
+              
+              // Notify the message sender if they're online
+              const message = await storage.getChatMessageById(data.messageId);
+              if (message) {
+                sendToUser(message.senderId, {
+                  type: 'message_read',
+                  messageId: data.messageId,
+                  threadId: message.threadId,
+                  timestamp: Date.now()
+                });
+              }
+            } catch (error) {
+              console.error('Error marking message as read:', error);
+            }
+          }
+        }
+        
+        // Handle client heartbeat (keeps connection alive)
+        else if (data.type === 'heartbeat') {
+          ws.send(JSON.stringify({
+            type: 'heartbeat_ack',
+            timestamp: Date.now()
+          }));
         }
       } catch (error) {
         console.error('Error processing WebSocket message:', error);
+        
+        try {
+          ws.send(JSON.stringify({
+            type: 'error',
+            code: 'INVALID_FORMAT',
+            message: 'Invalid message format'
+          }));
+        } catch (sendError) {
+          console.error('Error sending error response:', sendError);
+        }
       }
     });
     
     // Handle client disconnect
     ws.on('close', () => {
-      console.log('WebSocket client disconnected');
+      const clientInfo = clients.get(ws);
+      if (clientInfo && clientInfo.userId !== 'unknown') {
+        console.log(`WebSocket client disconnected: ${clientInfo.userId}`);
+        
+        // Update user status to offline in the database
+        try {
+          storage.updateUserStatus(clientInfo.userId, 'offline');
+        } catch (error) {
+          console.error('Error updating user status to offline:', error);
+        }
+      } else {
+        console.log('Unauthenticated WebSocket client disconnected');
+      }
+      
+      clients.delete(ws);
+    });
+    
+    // Handle connection errors
+    ws.on('error', (error) => {
+      console.error('WebSocket error:', error);
       clients.delete(ws);
     });
   });
   
   // Function to send a message to a specific user
-  function sendToUser(userId: string, data: any) {
+  // Returns true if message was delivered, false otherwise
+  function sendToUser(userId: string, data: any): boolean {
     for (const [client, info] of clients.entries()) {
       if (info.userId === userId && client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(data));
-        break;
+        try {
+          client.send(JSON.stringify(data));
+          return true; // Message delivered successfully
+        } catch (error) {
+          console.error(`Error sending message to user ${userId}:`, error);
+          return false;
+        }
       }
     }
+    return false; // User not found or not connected
   }
   
   // Function to broadcast to users within a certain distance

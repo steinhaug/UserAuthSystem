@@ -148,6 +148,10 @@ export const chatMessages = pgTable("chat_messages", {
   content: text("content").notNull(),
   read: boolean("read").default(false),
   type: text("type").default("text"), // text, system, friend_request
+  status: text("status").default("sent"), // sent, delivered, pending, failed
+  readAt: timestamp("read_at"),
+  deliveredAt: timestamp("delivered_at"),
+  updatedAt: timestamp("updated_at"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => {
   return {
@@ -155,7 +159,8 @@ export const chatMessages = pgTable("chat_messages", {
     senderIdIdx: index("chat_messages_sender_id_idx").on(table.senderId),
     receiverIdIdx: index("chat_messages_receiver_id_idx").on(table.receiverId),
     createdAtIdx: index("chat_messages_created_at_idx").on(table.createdAt),
-    readStatusIdx: index("chat_messages_read_status_idx").on(table.read)
+    readStatusIdx: index("chat_messages_read_status_idx").on(table.read),
+    messageStatusIdx: index("chat_messages_status_idx").on(table.status)
   };
 });
 
@@ -262,6 +267,9 @@ export const insertActivityParticipantSchema = createInsertSchema(activityPartic
 export const insertChatMessageSchema = createInsertSchema(chatMessages).omit({
   id: true,
   createdAt: true,
+  readAt: true,
+  deliveredAt: true,
+  updatedAt: true,
 });
 
 export const insertChatThreadSchema = createInsertSchema(chatThreads).omit({
