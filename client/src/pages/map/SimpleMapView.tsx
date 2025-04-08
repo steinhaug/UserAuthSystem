@@ -442,17 +442,19 @@ export default function SimpleMapView() {
             <div className="absolute top-4 left-4 z-10 w-full max-w-md px-4">
               <div className="bg-white/90 rounded-lg shadow-lg overflow-hidden">
                 {/* Location search */}
-                <LocationSearch 
-                  onResultsFound={handleLocationSearch}
-                  onDirectLocation={handleDirectLocation}
-                />
-                
-                {/* Voice search button */}
-                <div className="absolute right-8 top-3">
-                  <VoiceSearch 
-                    onSearch={handleSearch}
-                    isSearching={isSearching}
+                <div className="relative">
+                  <LocationSearch 
+                    onResultsFound={handleLocationSearch}
+                    onDirectLocation={handleDirectLocation}
                   />
+                  
+                  {/* Voice search button */}
+                  <div className="absolute right-16 top-3">
+                    <VoiceSearch 
+                      onSearch={handleSearch}
+                      isSearching={isSearching}
+                    />
+                  </div>
                 </div>
               </div>
               
