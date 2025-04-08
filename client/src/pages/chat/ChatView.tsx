@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from '@/hooks/use-toast';
 import { DEVELOPMENT_MODE } from '@/lib/constants';
 import EnhancedChatView from './index';
+import SimpleChatThread from './SimpleChatThread';
 
 export default function ChatView() {
   const [, setLocation] = useLocation();
@@ -51,7 +52,7 @@ export default function ChatView() {
           value="enhanced" 
           className="h-full"
         >
-          <EnhancedChatView />
+          <SimpleChatThread />
         </TabsContent>
       </Tabs>
     </div>

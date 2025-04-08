@@ -1,15 +1,25 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
-import { ChatMessageWithStatus } from '@/hooks/use-chat-websocket';
 import MessageStatusIndicator from './MessageStatusIndicator';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { AlertTriangleIcon, RefreshCwIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatDistanceToNow } from 'date-fns';
 
+// Using a more generic type for messages
+interface MessageType {
+  id: string;
+  content: string;
+  senderId: string;
+  timestamp: number;
+  status?: 'sent' | 'delivered' | 'read' | 'pending' | 'failed';
+  senderName?: string;
+  recipientId?: string;
+}
+
 interface ChatMessageProps {
-  message: ChatMessageWithStatus;
+  message: MessageType;
   onResend?: (messageId: string) => void;
 }
 

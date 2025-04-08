@@ -1,14 +1,24 @@
 import React, { useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
-import { ChatMessageWithStatus } from '@/hooks/use-chat-websocket';
 import ChatMessage from './ChatMessage';
 import { Button } from '@/components/ui/button';
 import { SendIcon } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
+// Using a more generic type for messages
+interface MessageType {
+  id: string;
+  content: string;
+  senderId: string;
+  timestamp: number;
+  status?: 'sent' | 'delivered' | 'read' | 'pending' | 'failed';
+  senderName?: string;
+  recipientId?: string;
+}
+
 interface ChatThreadProps {
-  messages: ChatMessageWithStatus[];
+  messages: MessageType[];
   onSendMessage: (content: string) => void;
   onResendMessage?: (messageId: string) => void;
   isLoading?: boolean;
