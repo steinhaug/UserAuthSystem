@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-// reCAPTCHA site key
+// reCAPTCHA site key - registered for comemingel.com
 const SITE_KEY = '6LfB1w4rAAAAAE3jDWJtl0rETiW2j0MRS7yxPdFK';
 
 interface ReCaptchaProps {

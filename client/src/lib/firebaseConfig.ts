@@ -7,7 +7,7 @@ import { initializeFirebaseAppCheck } from './appCheck';
 // Firebase configuration with values provided by the user
 const firebaseConfig = {
   apiKey: "AIzaSyCthI0fdJzNGxKRqHk2dB1fis3aG23CE-Y",
-  authDomain: "comemingel.firebaseapp.com",
+  authDomain: "comemingel.com",
   databaseURL: "https://comemingel-default-rtdb.europe-west1.firebasedatabase.app",
   projectId: "comemingel",
   storageBucket: "comemingel.firebasestorage.app",

@@ -2,7 +2,7 @@ import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 import { app } from './firebaseConfig';
 import { DEVELOPMENT_MODE } from './constants';
 
-// The reCAPTCHA site key provided
+// The reCAPTCHA site key registered for comemingel.com
 const RECAPTCHA_SITE_KEY = '6LfB1w4rAAAAAE3jDWJtl0rETiW2j0MRS7yxPdFK';
 
 // Initialize Firebase App Check
