@@ -123,12 +123,12 @@ export default function SimpleMapView() {
     };
   }, [mapboxToken]);
   
-  // State to hold active places near user
-  const [nearbyPlaces] = useState([
-    { name: "Coffee Shop", lat: 0, lng: 0, type: "cafe" },
-    { name: "Restaurant", lat: 0, lng: 0, type: "restaurant" },
-    { name: "Park", lat: 0, lng: 0, type: "park" },
-    { name: "Gym", lat: 0, lng: 0, type: "gym" }
+  // State to hold active ploggers near user
+  const [nearbyPloggers] = useState([
+    { name: "Anna (Plogger)", lat: 0, lng: 0, type: "plogger", active: true },
+    { name: "Markus (Plogger)", lat: 0, lng: 0, type: "plogger", active: true },
+    { name: "Sofia (Plogger)", lat: 0, lng: 0, type: "plogger", active: false },
+    { name: "Lars (Plogger)", lat: 0, lng: 0, type: "plogger", active: true }
   ]);
   
   // Update map when user location is available
@@ -162,45 +162,52 @@ export default function SimpleMapView() {
         
       console.log("Added user marker at:", userLocation.latitude, userLocation.longitude);
       
-      // Add simulated nearby places based on user location
-      nearbyPlaces.forEach((place, index) => {
+      // Add simulated nearby ploggers based on user location
+      nearbyPloggers.forEach((plogger: { name: string; lat: number; lng: number; type: string; active: boolean }, index: number) => {
         // Simulate locations around the user
         const offset = 0.002 + (index * 0.001);
         const lat = userLocation.latitude + (Math.random() > 0.5 ? offset : -offset);
         const lng = userLocation.longitude + (Math.random() > 0.5 ? offset : -offset);
         
         // Create marker element
-        const placeEl = document.createElement('div');
-        placeEl.className = 'place-marker';
+        const ploggerEl = document.createElement('div');
+        ploggerEl.className = 'plogger-marker';
         
-        let markerHtml = '<div class="w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center border-2 border-white shadow-md">';
+        // Color based on activity status
+        const bgColor = plogger.active ? 'bg-green-500' : 'bg-gray-400';
         
-        // Different icons for different place types
-        if (place.type === 'cafe') {
-          markerHtml += '<span>☕</span>';
-        } else if (place.type === 'restaurant') {
-          markerHtml += '<span>🍽️</span>';
-        } else if (place.type === 'park') {
-          markerHtml += '<span>🌳</span>';
-        } else if (place.type === 'gym') {
-          markerHtml += '<span>💪</span>';
-        }
+        // Plogger marker with trash bag icon
+        const markerHtml = `
+          <div class="w-10 h-10 rounded-full ${bgColor} text-white flex items-center justify-center border-2 border-white shadow-md relative">
+            <span>🗑️</span>
+            ${plogger.active ? '<div class="w-3 h-3 rounded-full bg-green-300 absolute -top-1 -right-1 border border-white animate-pulse"></div>' : ''}
+          </div>
+        `;
         
-        markerHtml += '</div>';
-        placeEl.innerHTML = markerHtml;
+        ploggerEl.innerHTML = markerHtml;
         
         // Add marker to map
-        new mapboxgl.Marker(placeEl)
+        new mapboxgl.Marker(ploggerEl)
           .setLngLat([lng, lat])
           .setPopup(new mapboxgl.Popup({ offset: 25 })
-            .setHTML(`<strong>${place.name}</strong><br>Type: ${place.type}`))
+            .setHTML(`
+              <div class="p-2">
+                <strong>${plogger.name}</strong>
+                <br>
+                <span class="text-sm ${plogger.active ? 'text-green-600' : 'text-gray-500'}">
+                  ${plogger.active ? 'Aktiv nå' : 'Inaktiv'}
+                </span>
+                <br>
+                <span class="text-xs text-gray-500">Sist aktiv: Idag, 10:45</span>
+              </div>
+            `))
           .addTo(map.current);
       });
       
     } catch (error) {
       console.error("Error updating map with user location:", error);
     }
-  }, [userLocation, nearbyPlaces]);
+  }, [userLocation, nearbyPloggers]);
   
   // State for search results
   const [searchResults, setSearchResults] = useState<Array<{
