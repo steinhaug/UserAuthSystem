@@ -215,6 +215,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
     }
   });
+  
+  app.get("/api/activities/:id", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const activity = await storage.getActivityById(id);
+      
+      if (!activity) {
+        return sendErrorResponse(
+          res,
+          `Activity with ID ${id} not found`,
+          404,
+          ApiErrorCode.NOT_FOUND
+        );
+      }
+      
+      res.json({ activity });
+    } catch (error) {
+      await handleApiDatabaseError(res, error);
+    }
+  });
 
   app.post("/api/activities/:activityId/join", authenticateUser, async (req, res) => {
     try {
@@ -459,6 +479,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Mount the OpenAI router - we don't require authentication for these endpoints
   // to allow for guest voice search functionality
   app.use('/api/openai', openaiRouter);
+
+  // Activity Recommendations API endpoints
+  app.get("/api/recommendations", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = req.user.uid;
+      const recommendations = await storage.getActivityRecommendationsForUser(userId);
+      
+      if (recommendations.length === 0) {
+        // Generate new recommendations if none exist
+        const newRecommendations = await storage.generateRecommendationsForUser(userId);
+        return res.json({ recommendations: newRecommendations });
+      }
+      
+      return res.json({ recommendations });
+    } catch (error) {
+      await handleApiDatabaseError(res, error);
+    }
+  });
+
+  app.post("/api/recommendations/generate", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = req.user.uid;
+      const recommendations = await storage.generateRecommendationsForUser(userId);
+      return res.json({ recommendations });
+    } catch (error) {
+      await handleApiDatabaseError(res, error);
+    }
+  });
+
+  app.patch("/api/recommendations/:id/status", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+      
+      if (!['pending', 'accepted', 'rejected', 'saved'].includes(status)) {
+        return sendErrorResponse(
+          res,
+          "Invalid status. Must be one of: pending, accepted, rejected, saved",
+          400,
+          ApiErrorCode.VALIDATION_ERROR
+        );
+      }
+      
+      const updatedRecommendation = await storage.updateActivityRecommendationStatus(
+        parseInt(id), 
+        status
+      );
+      
+      if (!updatedRecommendation) {
+        return sendErrorResponse(
+          res,
+          `Recommendation with ID ${id} not found`,
+          404,
+          ApiErrorCode.NOT_FOUND
+        );
+      }
+      
+      return res.json({ recommendation: updatedRecommendation });
+    } catch (error) {
+      await handleApiDatabaseError(res, error);
+    }
+  });
 
   const httpServer = createServer(app);
   
