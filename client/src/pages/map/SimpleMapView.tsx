@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { Button } from '@/components/ui/button';
-import { ChevronDownIcon, MapIcon, SunIcon, MoonIcon, MountainIcon, LayersIcon } from 'lucide-react';
+import { 
+  MapIcon, SunIcon, MoonIcon, MountainIcon, 
+  LayersIcon, MapPinIcon, CrosshairIcon 
+} from 'lucide-react';
 
 // Set Mapbox token globally
 const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
@@ -314,9 +317,10 @@ export default function SimpleMapView() {
             {/* User's Position Button */}
             <Button 
               onClick={handleCenterOnUser}
-              className="absolute bottom-20 right-4 bg-gradient-to-r from-[#FF5252] to-[#FF1744] text-white p-3 rounded-full shadow-lg z-10"
+              className="absolute bottom-4 left-4 bg-gradient-to-r from-[#FF5252] to-[#FF1744] text-white p-3 rounded-full shadow-lg z-10"
+              title="Center on my location"
             >
-              <ChevronDownIcon className="h-6 w-6" />
+              <CrosshairIcon className="h-6 w-6" />
             </Button>
           </>
         )}
