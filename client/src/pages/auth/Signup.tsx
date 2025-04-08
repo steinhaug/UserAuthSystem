@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
+import { DEVELOPMENT_MODE } from '@/lib/constants';
 
 const signupSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -39,11 +40,33 @@ export default function Signup() {
   const onSubmit = async (data: SignupFormValues) => {
     setIsLoading(true);
     try {
-      // Create user with email and password
+      console.log('Attempting signup with email:', data.email);
+      
+      // Check if we're in development mode
+      if (DEVELOPMENT_MODE) {
+        console.log('Using development mode for signup - setting mock user');
+        // In development mode, just set the localStorage flag to enable the mock user
+        localStorage.setItem('devModeLoggedIn', 'true');
+        toast({
+          title: 'Development mode signup',
+          description: `Account created for ${data.name} in development mode`,
+          variant: 'default',
+        });
+        setLocation('/map');
+        return;
+      }
+      
+      // Create user with email and password (normal flow)
       const userCredential = await signupWithEmail(data.email, data.password);
       
       // Update user profile with display name
       await updateUserProfile(data.name);
+      
+      toast({
+        title: 'Account created',
+        description: 'Your account has been created successfully!',
+        variant: 'default',
+      });
       
       // Redirect to map view
       setLocation('/map');

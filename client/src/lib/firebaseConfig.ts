@@ -2,6 +2,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { DEVELOPMENT_MODE } from './constants';
+import { initializeFirebaseAppCheck } from './appCheck';
 
 // Firebase configuration with values provided by the user
 const firebaseConfig = {
@@ -19,6 +20,16 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+
+// Initialize Firebase App Check (for production only)
+if (!DEVELOPMENT_MODE) {
+  try {
+    initializeFirebaseAppCheck();
+  } catch (error) {
+    console.error("Error initializing Firebase App Check:", error);
+    console.warn("Falling back to development mode due to App Check initialization failure");
+  }
+}
 
 // Log initialization status
 if (DEVELOPMENT_MODE) {

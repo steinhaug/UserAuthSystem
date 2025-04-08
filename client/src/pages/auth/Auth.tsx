@@ -5,6 +5,7 @@ import Signup from './Signup';
 import { useAuth } from '@/contexts/AuthContext';
 import { app as firebaseApp } from '@/lib/firebase';
 import { DEVELOPMENT_MODE } from '@/lib/constants';
+import ReCaptcha from '@/components/ReCaptcha';
 
 export default function Auth() {
   const [activeTab, setActiveTab] = useState<'login' | 'signup'>('login');
@@ -104,6 +105,16 @@ export default function Auth() {
           </div>
           
           {activeTab === 'login' ? <Login /> : <Signup />}
+          
+          {/* Add ReCaptcha component when not in development mode */}
+          {!DEVELOPMENT_MODE && (
+            <div className="px-6 pb-6">
+              <ReCaptcha onVerify={(token) => {
+                console.log("ReCaptcha verified with token:", token);
+                // You can store this token or use it for Firebase App Check
+              }} />
+            </div>
+          )}
         </div>
       </div>
     </div>
