@@ -85,7 +85,7 @@ export interface IStorage {
 }
 
 import { db } from "./db";
-import { eq, or, and, inArray } from "drizzle-orm";
+import { eq, or, and, inArray, desc } from "drizzle-orm";
 import { handleDatabaseOperation } from "./utils/errorHandler";
 
 export class DatabaseStorage implements IStorage {
@@ -446,24 +446,80 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(searchHistory)
       .where(eq(searchHistory.userId, userId))
-      .orderBy(searchHistory.timestamp)
+      .orderBy(desc(searchHistory.timestamp)) // Show newest first
       .limit(limit);
   }
   
   async getSearchSuggestions(userId: string, prefix: string): Promise<string[]> {
-    // Get user's search history
+    // Get user's search history, ordered by most recent first
     const history = await db
       .select()
       .from(searchHistory)
-      .where(eq(searchHistory.userId, userId));
+      .where(eq(searchHistory.userId, userId))
+      .orderBy(desc(searchHistory.timestamp));
     
-    // Filter history items that start with the prefix
-    const matchingQueries = history
-      .map(item => item.query)
-      .filter(query => query.toLowerCase().startsWith(prefix.toLowerCase()));
+    // Get user's preferences
+    const [preferences] = await db
+      .select()
+      .from(searchPreferences)
+      .where(eq(searchPreferences.userId, userId));
     
-    // Remove duplicates and limit to 5 suggestions
-    return [...new Set(matchingQueries)].slice(0, 5);
+    // All queries from history, with duplicates removed
+    const allUniqueQueries = [...new Set(history.map(item => item.query))];
+    
+    // Different types of suggestions with weighted scores
+    let scoredSuggestions: { query: string; score: number }[] = [];
+    
+    // Process each unique query
+    allUniqueQueries.forEach(query => {
+      // Base score starts at 0
+      let score = 0;
+      
+      // Check if query matches prefix (case insensitive)
+      const matchesPrefix = query.toLowerCase().includes(prefix.toLowerCase());
+      if (!matchesPrefix) return; // Skip if no match
+      
+      // Exact prefix match gets higher score than partial match
+      if (query.toLowerCase().startsWith(prefix.toLowerCase())) {
+        score += 5;
+      } else {
+        score += 3;
+      }
+      
+      // Add to score for each occurrence in history (frequency)
+      const frequency = history.filter(item => item.query === query).length;
+      score += Math.min(frequency, 3); // Cap at 3 to avoid overwhelming frequency bias
+      
+      // Add to score for recent searches (recency)
+      const mostRecentSearch = history.find(item => item.query === query);
+      if (mostRecentSearch) {
+        const daysSinceSearch = (Date.now() - new Date(mostRecentSearch.timestamp).getTime()) / (1000 * 60 * 60 * 24);
+        // More recent searches get higher scores
+        if (daysSinceSearch < 1) score += 3;       // Today
+        else if (daysSinceSearch < 7) score += 2;  // This week
+        else if (daysSinceSearch < 30) score += 1; // This month
+      }
+      
+      // Add to score for successful searches
+      const successfulSearches = history.filter(item => item.query === query && item.successful);
+      score += Math.min(successfulSearches.length, 2);
+      
+      // Add to score for matches with favorite categories
+      if (preferences?.favoriteCategories) {
+        const matchesCategory = preferences.favoriteCategories.some(
+          category => query.toLowerCase().includes(category.toLowerCase())
+        );
+        if (matchesCategory) score += 2;
+      }
+      
+      scoredSuggestions.push({ query, score });
+    });
+    
+    // Sort by score (descending) and get top 5
+    return scoredSuggestions
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
+      .map(suggestion => suggestion.query);
   }
   
   async getUserSearchPreferences(userId: string): Promise<SearchPreferences | undefined> {

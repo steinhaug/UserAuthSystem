@@ -260,4 +260,120 @@ function provideSimpleSearchResults(query: string, res: express.Response) {
   });
 }
 
+// Endpoint for personalized location suggestions based on user's search history and preferences
+router.post('/location-suggestions', async (req, res) => {
+  try {
+    const { latitude, longitude, radius, preferences, history } = req.body;
+    
+    if (!latitude || !longitude) {
+      return res.status(400).json({ error: 'Latitude and longitude are required' });
+    }
+    
+    // Check if OpenAI API key is properly configured
+    if (!process.env.OPENAI_API_KEY || !process.env.OPENAI_API_KEY.startsWith('sk-')) {
+      console.log('OpenAI API key not properly configured. Using fallback suggestions.');
+      return res.json({ suggestions: [
+        { name: "Nearby Park", type: "park", distance: "0.5 km" },
+        { name: "Local Cafe", type: "cafe", distance: "0.3 km" },
+        { name: "Fitness Center", type: "gym", distance: "0.8 km" }
+      ]});
+    }
+    
+    // Prepare context from user preferences and history
+    let userContext = "No history or preferences available.";
+    
+    if (preferences) {
+      const favoriteCategories = preferences.favoriteCategories || [];
+      const favoriteLocations = preferences.favoriteLocations || [];
+      
+      if (favoriteCategories.length > 0 || favoriteLocations.length > 0) {
+        userContext = "Based on your preferences: ";
+        
+        if (favoriteCategories.length > 0) {
+          userContext += `You're interested in: ${favoriteCategories.join(', ')}. `;
+        }
+        
+        if (favoriteLocations.length > 0) {
+          userContext += `You've saved locations like: ${favoriteLocations.map(loc => loc.name).join(', ')}. `;
+        }
+      }
+    }
+    
+    if (history && history.length > 0) {
+      // Extract patterns from search history
+      const recentSearches = history.slice(0, 10).map(item => item.query);
+      const searchedCategories = history
+        .filter(item => item.category)
+        .map(item => item.category);
+      
+      // Add to context
+      if (recentSearches.length > 0) {
+        userContext += `You've recently searched for: ${recentSearches.join(', ')}. `;
+      }
+      
+      if (searchedCategories.length > 0) {
+        const uniqueCategories = [...new Set(searchedCategories)];
+        userContext += `You've looked for categories like: ${uniqueCategories.join(', ')}. `;
+      }
+    }
+    
+    try {
+      // Use OpenAI to generate personalized suggestions
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o", // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
+        messages: [
+          { 
+            role: "system", 
+            content: `You are a local guide assistant that suggests interesting places near a user's location.
+              Generate a list of specific places within ${radius} km of the user's current location (${latitude}, ${longitude}).
+              Consider their preferences and search history to personalize suggestions.
+              
+              Return a JSON object with an array of suggestion objects. Each suggestion should have:
+              - name: A specific place name
+              - type: Category (restaurant, park, museum, etc.)
+              - description: Brief description of why they might like it based on their preferences
+              - distance: Approximate distance from user location (in km or m)
+              
+              Make suggestions varied but relevant to the user's interests. Include a mix of popular spots and hidden gems.
+              BE CREATIVE but REALISTIC - don't make up places that don't exist, but suggest interesting options that might be in the area.`
+          },
+          { 
+            role: "user", 
+            content: `I'm currently at coordinates (${latitude}, ${longitude}). ${userContext} What's interesting nearby within ${radius} km?`
+          }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.8,
+      });
+      
+      // Extract the response content
+      const responseContent = completion.choices[0].message.content;
+      let parsedResponse;
+      
+      try {
+        parsedResponse = JSON.parse(responseContent || '{"suggestions":[]}');
+        
+        // Validate the response structure
+        if (!parsedResponse.suggestions || !Array.isArray(parsedResponse.suggestions)) {
+          parsedResponse = { suggestions: [] };
+        }
+        
+        return res.json(parsedResponse);
+      } catch (parseError) {
+        console.error('Failed to parse OpenAI response:', parseError);
+        return res.status(500).json({ error: 'Failed to parse suggestions' });
+      }
+    } catch (openaiError) {
+      console.error('OpenAI API error:', openaiError);
+      return res.status(500).json({ error: 'Failed to generate suggestions from OpenAI' });
+    }
+  } catch (error) {
+    console.error('Error generating location suggestions:', error);
+    return res.status(500).json({ 
+      error: 'Failed to generate location suggestions',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 export default router;

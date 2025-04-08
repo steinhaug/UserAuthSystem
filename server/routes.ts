@@ -365,6 +365,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Near Me Now endpoint for personalized nearby suggestions
+  app.get("/api/search/near-me", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { latitude, longitude, radius = 1 } = req.query;
+      
+      if (!latitude || !longitude) {
+        return res.status(400).json({ message: "Latitude and longitude are required" });
+      }
+      
+      // Try to get user preferences to personalize the suggestions
+      const preferences = await storage.getUserSearchPreferences(req.user.uid);
+      
+      // Get user's search history to determine interests
+      const searchHistory = await storage.getUserSearchHistory(req.user.uid, 20);
+      
+      // Call the OpenAI API for personalized suggestions
+      const response = await fetch(`${req.protocol}://${req.get('host')}/api/openai/location-suggestions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          latitude: parseFloat(latitude as string),
+          longitude: parseFloat(longitude as string),
+          radius: parseFloat(radius as string),
+          preferences: preferences || { favoriteCategories: [], favoriteLocations: [] },
+          history: searchHistory || []
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to get location suggestions: ${response.statusText}`);
+      }
+      
+      const suggestions = await response.json();
+      res.json(suggestions);
+    } catch (error) {
+      console.error("Error getting nearby suggestions:", error);
+      res.status(500).json({ 
+        message: "Failed to get nearby suggestions",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
   // Mount the OpenAI router - we don't require authentication for these endpoints
   // to allow for guest voice search functionality
   app.use('/api/openai', openaiRouter);

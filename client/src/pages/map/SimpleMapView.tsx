@@ -4,11 +4,12 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { Button } from '@/components/ui/button';
 import { VoiceSearch } from "../../components/map/VoiceSearch";
 import { LocationSearch } from "../../components/map/LocationSearch";
+import { NearMeNow } from "../../components/map/NearMeNow";
 import { useSearchHistory } from "../../hooks/use-search-history";
 import { 
   MapIcon, SunIcon, MoonIcon, MountainIcon, 
   LayersIcon, MapPinIcon, CrosshairIcon,
-  MicIcon, SearchIcon
+  MicIcon, SearchIcon, CompassIcon
 } from 'lucide-react';
 
 // Set Mapbox token globally
@@ -540,6 +541,21 @@ export default function SimpleMapView() {
                       </li>
                     ))}
                   </ul>
+                </div>
+              )}
+              
+              {/* Near Me Now suggestions */}
+              {!searchResults.length && (
+                <div className="mt-2">
+                  <NearMeNow 
+                    currentLocation={userLocation ? { latitude: userLocation.latitude, longitude: userLocation.longitude } : undefined}
+                    onSelectPlace={(place) => {
+                      if (place.name && map.current && userLocation) {
+                        // Create a search for this place
+                        handleSearch(place.name);
+                      }
+                    }}
+                  />
                 </div>
               )}
             </div>
