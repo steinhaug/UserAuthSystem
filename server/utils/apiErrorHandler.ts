@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { DatabaseError } from './errorHandler';
 import { log } from '../vite';
+import { executeWithRecovery } from './recoveryStrategies';
 
 // Standard error response structure
 export interface ErrorResponse {
@@ -62,29 +63,74 @@ export function sendErrorResponse(
 }
 
 /**
- * Handle database errors and convert them to appropriate API responses
+ * Generate a unique error ID for tracking
  */
-export function handleApiDatabaseError(res: Response, error: any) {
+function generateErrorId(): string {
+  return `err_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
+}
+
+/**
+ * Handle database errors and convert them to appropriate API responses
+ * Sanitizes error details to prevent exposing internal database information
+ * Implements recovery strategies when possible
+ */
+export async function handleApiDatabaseError(res: Response, error: any, retryOperation?: () => Promise<any>) {
+  // Generate a unique error ID for tracking
+  const errorId = generateErrorId();
+  
+  // Log the full error for server-side debugging (but sanitize sensitive data)
+  const sanitizedError = { ...error };
+  // Remove any potential sensitive fields
+  delete sanitizedError.parameters;
+  delete sanitizedError.stack;
+  delete sanitizedError.query;
+  
+  log(`Database error details [${errorId}]: ${JSON.stringify(sanitizedError)}`, 'db-error');
+  
   if (error instanceof DatabaseError) {
     const statusCode = dbErrorToHttpStatus[error.code] || 500;
     const message = dbErrorToUserMessage[error.code] || 'An unexpected error occurred';
     
+    // Log with error ID for tracking
+    log(`Error ID ${errorId}: Database error: ${error.code} - ${error.message}`, 'db-error');
+    
+    // Try recovery strategy if operation is provided and error is recoverable
+    if (retryOperation && ['ETIMEDOUT', 'ECONNREFUSED', 'DB_ERROR'].includes(error.code)) {
+      log(`Attempting recovery for error ${errorId}`, 'recovery');
+      
+      const recoveryResult = await executeWithRecovery(
+        retryOperation,
+        'database-operation',
+        { errorId, errorCode: error.code }
+      );
+      
+      if (recoveryResult.success) {
+        log(`Recovery successful for error ${errorId}`, 'recovery');
+        // If we recovered, return the successful result
+        return res.json(recoveryResult.data);
+      }
+    }
+    
+    // Only send safe information to client
     return sendErrorResponse(
       res, 
       message, 
       statusCode, 
-      `DB_${error.code}`,
-      process.env.NODE_ENV === 'development' ? { originalError: error.message } : undefined
+      `DB_ERROR`,
+      // Only include errorId in the response for tracking
+      { errorId }
     );
   }
   
   // Handle other types of errors
+  log(`Error ID ${errorId}: General error: ${error.message}`, 'api-error');
+  
   return sendErrorResponse(
     res, 
     'An unexpected error occurred', 
     500,
     ApiErrorCode.INTERNAL_SERVER_ERROR,
-    process.env.NODE_ENV === 'development' ? { error: error.message } : undefined
+    { errorId }
   );
 }
 

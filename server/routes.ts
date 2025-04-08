@@ -9,6 +9,7 @@ import {
   ApiErrorCode,
   validateRequest
 } from "./utils/apiErrorHandler";
+import { log } from "./vite";
 
 // Initialize Firebase Admin
 try {
@@ -63,18 +64,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // User endpoints
   app.get("/api/users/profile", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const user = await storage.getUserByFirebaseId(req.user.uid);
-      if (!user) {
-        return sendErrorResponse(
-          res,
-          "User profile not found",
-          404,
-          ApiErrorCode.NOT_FOUND
-        );
+      const userId = req.user.uid;
+      
+      try {
+        const user = await storage.getUserByFirebaseId(userId);
+        if (!user) {
+          return sendErrorResponse(
+            res,
+            "User profile not found",
+            404,
+            ApiErrorCode.NOT_FOUND
+          );
+        }
+        res.json(user);
+      } catch (error) {
+        // Pass the retry operation to the error handler for possible recovery
+        await handleApiDatabaseError(res, error, async () => {
+          // This is the retry operation that will be executed if recovery is possible
+          return await storage.getUserByFirebaseId(userId);
+        });
       }
-      res.json(user);
-    } catch (error) {
-      handleApiDatabaseError(res, error);
+    } catch (outerError: any) {
+      log(`Unexpected error in user profile retrieval: ${outerError?.message || 'Unknown error'}`, 'error');
+      sendErrorResponse(
+        res,
+        "An unexpected error occurred while retrieving your profile",
+        500,
+        ApiErrorCode.INTERNAL_SERVER_ERROR
+      );
     }
   });
 
@@ -165,14 +182,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
       }
       
-      const activity = await storage.createActivity({
+      const activityData = {
         ...req.body,
         creatorId: req.user.uid,
-      });
+      };
       
-      res.status(201).json(activity);
-    } catch (error) {
-      handleApiDatabaseError(res, error);
+      try {
+        const activity = await storage.createActivity(activityData);
+        res.status(201).json(activity);
+      } catch (error) {
+        // Pass the retry operation to the error handler for possible recovery
+        await handleApiDatabaseError(res, error, async () => {
+          // This is the retry operation that will be executed if recovery is possible
+          return await storage.createActivity(activityData);
+        });
+      }
+    } catch (outerError: any) {
+      log(`Unexpected error in activity creation: ${outerError?.message || 'Unknown error'}`, 'error');
+      sendErrorResponse(
+        res,
+        "An unexpected error occurred while processing your request",
+        500,
+        ApiErrorCode.INTERNAL_SERVER_ERROR
+      );
     }
   });
 
