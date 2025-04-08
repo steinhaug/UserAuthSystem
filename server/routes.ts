@@ -10,6 +10,7 @@ import {
   validateRequest
 } from "./utils/apiErrorHandler";
 import { log } from "./vite";
+import { WebSocketServer, WebSocket } from 'ws';
 
 // Initialize Firebase Admin
 try {
@@ -264,6 +265,133 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const httpServer = createServer(app);
+  
+  // Initialize WebSocket server on the same HTTP server but on a different path
+  const wss = new WebSocketServer({ 
+    server: httpServer, 
+    path: '/ws' 
+  });
+  
+  // Connected clients with their user IDs
+  const clients = new Map<WebSocket, { userId: string }>();
+  
+  wss.on('connection', (ws, req) => {
+    console.log('WebSocket client connected');
+    
+    // Add client to the clients Map with a placeholder userId
+    clients.set(ws, { userId: 'unknown' });
+    
+    // Handle messages from clients
+    ws.on('message', async (message) => {
+      try {
+        const data = JSON.parse(message.toString());
+        console.log('Received message:', data);
+        
+        // Handle authentication message
+        if (data.type === 'authenticate') {
+          if (data.token) {
+            try {
+              // Verify the Firebase ID token
+              const decodedToken = await admin.auth().verifyIdToken(data.token);
+              const userId = decodedToken.uid;
+              
+              // Update client info with the authenticated user ID
+              clients.set(ws, { userId });
+              
+              // Send authentication confirmation
+              ws.send(JSON.stringify({ 
+                type: 'authentication_result', 
+                success: true,
+                userId 
+              }));
+              
+              console.log(`Client authenticated: ${userId}`);
+            } catch (error) {
+              console.error('Authentication error:', error);
+              ws.send(JSON.stringify({ 
+                type: 'authentication_result', 
+                success: false, 
+                error: 'Invalid token' 
+              }));
+            }
+          }
+        }
+        
+        // Handle location update
+        else if (data.type === 'location_update') {
+          const clientInfo = clients.get(ws);
+          
+          if (clientInfo && clientInfo.userId !== 'unknown') {
+            // Store the location update
+            await storage.updateUserLocation(clientInfo.userId, {
+              latitude: data.latitude,
+              longitude: data.longitude
+            });
+            
+            // Broadcast to nearby users if needed
+            broadcastToNearbyUsers(clientInfo.userId, {
+              type: 'nearby_user',
+              userId: clientInfo.userId,
+              location: {
+                latitude: data.latitude,
+                longitude: data.longitude
+              }
+            });
+          }
+        }
+        
+        // Handle chat message
+        else if (data.type === 'chat_message') {
+          const clientInfo = clients.get(ws);
+          
+          if (clientInfo && clientInfo.userId !== 'unknown' && data.recipientId) {
+            // Store the message in the database
+            const message = await storage.createChatMessage({
+              threadId: data.threadId,
+              senderId: clientInfo.userId,
+              content: data.content,
+              sentAt: new Date()
+            });
+            
+            // Send the message to the recipient if they're online
+            sendToUser(data.recipientId, {
+              type: 'new_message',
+              message
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error processing WebSocket message:', error);
+      }
+    });
+    
+    // Handle client disconnect
+    ws.on('close', () => {
+      console.log('WebSocket client disconnected');
+      clients.delete(ws);
+    });
+  });
+  
+  // Function to send a message to a specific user
+  function sendToUser(userId: string, data: any) {
+    for (const [client, info] of clients.entries()) {
+      if (info.userId === userId && client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(data));
+        break;
+      }
+    }
+  }
+  
+  // Function to broadcast to users within a certain distance
+  function broadcastToNearbyUsers(senderId: string, data: any) {
+    // In a real implementation, this would filter users by distance
+    // For now, we'll just broadcast to all authenticated users except the sender
+    for (const [client, info] of clients.entries()) {
+      if (info.userId !== 'unknown' && info.userId !== senderId && client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(data));
+      }
+    }
+  }
 
   return httpServer;
 }
