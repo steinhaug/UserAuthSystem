@@ -14,7 +14,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   useEffect(() => {
     // Redirect to auth page if not authenticated
     if (!isAuthenticated && !isLoading) {
-      setLocation('/');
+      setLocation('/login');
     }
   }, [isAuthenticated, isLoading, setLocation]);
 

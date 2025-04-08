@@ -22,6 +22,8 @@ function App() {
         <Switch>
           {/* Auth routes */}
           <Route path="/" component={Auth} />
+          <Route path="/login" component={Auth} />
+          <Route path="/auth" component={Auth} />
           
           {/* App routes - all wrapped in AppLayout for navigation */}
           <Route path="/map">

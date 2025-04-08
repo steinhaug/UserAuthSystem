@@ -41,7 +41,7 @@ export default function ProfileView() {
 
   useEffect(() => {
     if (!currentUser) {
-      setLocation('/');
+      setLocation('/login');
       return;
     }
 
@@ -56,7 +56,7 @@ export default function ProfileView() {
   const handleLogout = async () => {
     try {
       await logoutUser();
-      setLocation('/');
+      setLocation('/login');
     } catch (error: any) {
       toast({
         title: 'Error logging out',
