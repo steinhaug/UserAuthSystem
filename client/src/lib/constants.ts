@@ -1,7 +1,8 @@
 // Global constants for the application
 
-// Development mode flag - set to false to use real Firebase authentication with direct config
-export const DEVELOPMENT_MODE = false;
+// Development mode flag - set to true to use mock authentication 
+// (until Firebase App Check issue is fixed in the Firebase console)
+export const DEVELOPMENT_MODE = true;
 
 // API endpoints
 export const API_ENDPOINTS = {
