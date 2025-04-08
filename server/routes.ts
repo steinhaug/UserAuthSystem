@@ -2,6 +2,13 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import admin from "firebase-admin";
+import { DatabaseError } from "./utils/errorHandler";
+import { 
+  sendErrorResponse, 
+  handleApiDatabaseError, 
+  ApiErrorCode,
+  validateRequest
+} from "./utils/apiErrorHandler";
 
 // Initialize Firebase Admin
 try {
@@ -17,12 +24,25 @@ try {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Authentication middleware
-  const authenticateUser = async (req: any, res: any, next: any) => {
+  // Authentication middleware with extended Request type
+  interface AuthenticatedRequest extends Request {
+    user?: any;
+  }
+  
+  const authenticateUser = async (
+    req: AuthenticatedRequest, 
+    res: Response, 
+    next: NextFunction
+  ) => {
     try {
       const authHeader = req.headers.authorization;
       if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        return res.status(401).json({ message: "Unauthorized" });
+        return sendErrorResponse(
+          res, 
+          "Authentication required to access this resource", 
+          401, 
+          ApiErrorCode.UNAUTHORIZED
+        );
       }
 
       const token = authHeader.split("Bearer ")[1];
@@ -31,21 +51,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       next();
     } catch (error) {
       console.error("Authentication error:", error);
-      return res.status(401).json({ message: "Unauthorized" });
+      return sendErrorResponse(
+        res, 
+        "Invalid or expired authentication token", 
+        401, 
+        ApiErrorCode.UNAUTHORIZED
+      );
     }
   };
 
   // User endpoints
-  app.get("/api/users/profile", authenticateUser, async (req, res) => {
+  app.get("/api/users/profile", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const user = await storage.getUserByFirebaseId(req.user.uid);
       if (!user) {
-        return res.status(404).json({ message: "User not found" });
+        return sendErrorResponse(
+          res,
+          "User profile not found",
+          404,
+          ApiErrorCode.NOT_FOUND
+        );
       }
       res.json(user);
     } catch (error) {
-      console.error("Error fetching user profile:", error);
-      res.status(500).json({ message: "Internal server error" });
+      handleApiDatabaseError(res, error);
     }
   });
 
@@ -121,16 +150,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/activities", authenticateUser, async (req, res) => {
+  app.post("/api/activities", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
     try {
+      // Validate required fields
+      const { title, description, location, startTime, endTime, maxParticipants, category } = req.body;
+      
+      if (!title || !location || !startTime || !endTime) {
+        return sendErrorResponse(
+          res,
+          "Missing required fields for activity creation",
+          400,
+          ApiErrorCode.VALIDATION_ERROR,
+          { requiredFields: ['title', 'location', 'startTime', 'endTime'] }
+        );
+      }
+      
       const activity = await storage.createActivity({
         ...req.body,
         creatorId: req.user.uid,
       });
-      res.json(activity);
+      
+      res.status(201).json(activity);
     } catch (error) {
-      console.error("Error creating activity:", error);
-      res.status(500).json({ message: "Internal server error" });
+      handleApiDatabaseError(res, error);
     }
   });
 
