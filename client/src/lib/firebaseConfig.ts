@@ -3,13 +3,16 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { DEVELOPMENT_MODE } from './constants';
 
-// Firebase configuration
+// Firebase configuration with values provided by the user
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "demo-api-key",
+  apiKey: "AIzaSyCthI0fdJzNGxKRqHk2dB1fis3aG23CE-Y",
   authDomain: "comemingel.firebaseapp.com",
+  databaseURL: "https://comemingel-default-rtdb.europe-west1.firebasedatabase.app",
   projectId: "comemingel",
-  storageBucket: "comemingel.appspot.com",
-  appId: "1:950680129178:web:f99dc85b4168b8b431d923"
+  storageBucket: "comemingel.firebasestorage.app",
+  messagingSenderId: "950680129178",
+  appId: "1:950680129178:web:f99dc85b4168b8b431d923",
+  measurementId: "G-DQT4KTDJMT"
 };
 
 // Initialize Firebase
