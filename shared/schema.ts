@@ -1,6 +1,7 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, primaryKey, foreignKey, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { relations } from "drizzle-orm";
 
 // Users table
 export const users = pgTable("users", {
@@ -17,21 +18,47 @@ export const users = pgTable("users", {
   lastSeen: timestamp("last_seen").defaultNow(),
 });
 
+// Define user relations
+export const usersRelations = relations(users, ({ many }) => ({
+  sentFriendRequests: many(friends, { relationName: "userFriends" }),
+  receivedFriendRequests: many(friends, { relationName: "friendUser" }),
+  activities: many(activities),
+  activityParticipations: many(activityParticipants),
+  sentMessages: many(chatMessages, { relationName: "sender" }),
+  receivedMessages: many(chatMessages, { relationName: "receiver" }),
+  userChallenges: many(userChallenges),
+  bluetoothDevices: many(bluetoothDevices),
+}));
+
 // Friends table
 export const friends = pgTable("friends", {
   id: serial("id").primaryKey(),
-  userId: text("user_id").notNull(),
-  friendId: text("friend_id").notNull(),
+  userId: text("user_id").notNull().references(() => users.firebaseId),
+  friendId: text("friend_id").notNull().references(() => users.firebaseId),
   status: text("status").notNull(), // pending, accepted, rejected
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// Define friend relations
+export const friendsRelations = relations(friends, ({ one }) => ({
+  user: one(users, {
+    fields: [friends.userId],
+    references: [users.firebaseId],
+    relationName: "userFriends",
+  }),
+  friend: one(users, {
+    fields: [friends.friendId],
+    references: [users.firebaseId],
+    relationName: "friendUser",
+  }),
+}));
 
 // Activities table
 export const activities = pgTable("activities", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   description: text("description").notNull(),
-  creatorId: text("creator_id").notNull(),
+  creatorId: text("creator_id").notNull().references(() => users.firebaseId),
   location: jsonb("location").notNull(),
   locationName: text("location_name").notNull(),
   startTime: timestamp("start_time").notNull(),
@@ -42,25 +69,34 @@ export const activities = pgTable("activities", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Define activities relations
+export const activitiesRelations = relations(activities, ({ one, many }) => ({
+  creator: one(users, {
+    fields: [activities.creatorId],
+    references: [users.firebaseId],
+  }),
+  participants: many(activityParticipants),
+}));
+
 // Activity participants table
 export const activityParticipants = pgTable("activity_participants", {
   id: serial("id").primaryKey(),
-  activityId: integer("activity_id").notNull(),
-  userId: text("user_id").notNull(),
+  activityId: integer("activity_id").notNull().references(() => activities.id),
+  userId: text("user_id").notNull().references(() => users.firebaseId),
   joinedAt: timestamp("joined_at").defaultNow(),
 });
 
-// Chat messages table
-export const chatMessages = pgTable("chat_messages", {
-  id: serial("id").primaryKey(),
-  threadId: text("thread_id").notNull(),
-  senderId: text("sender_id").notNull(),
-  receiverId: text("receiver_id").notNull(),
-  content: text("content").notNull(),
-  read: boolean("read").default(false),
-  type: text("type").default("text"), // text, system, friend_request
-  createdAt: timestamp("created_at").defaultNow(),
-});
+// Define activity participants relations
+export const activityParticipantsRelations = relations(activityParticipants, ({ one }) => ({
+  activity: one(activities, {
+    fields: [activityParticipants.activityId],
+    references: [activities.id],
+  }),
+  user: one(users, {
+    fields: [activityParticipants.userId],
+    references: [users.firebaseId],
+  }),
+}));
 
 // Chat threads table
 export const chatThreads = pgTable("chat_threads", {
@@ -71,6 +107,39 @@ export const chatThreads = pgTable("chat_threads", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// Chat threads relations will be defined after chatMessages
+
+// Chat messages table
+export const chatMessages = pgTable("chat_messages", {
+  id: serial("id").primaryKey(),
+  threadId: text("thread_id").notNull(),
+  senderId: text("sender_id").notNull().references(() => users.firebaseId),
+  receiverId: text("receiver_id").notNull().references(() => users.firebaseId),
+  content: text("content").notNull(),
+  read: boolean("read").default(false),
+  type: text("type").default("text"), // text, system, friend_request
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Define chat messages relations
+export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
+  sender: one(users, {
+    fields: [chatMessages.senderId],
+    references: [users.firebaseId],
+    relationName: "sender",
+  }),
+  receiver: one(users, {
+    fields: [chatMessages.receiverId],
+    references: [users.firebaseId],
+    relationName: "receiver",
+  }),
+}));
+
+// Now define chat threads relations after chatMessages is defined
+export const chatThreadsRelations = relations(chatThreads, ({ many }) => ({
+  messages: many(chatMessages),
+}));
 
 // Challenges table
 export const challenges = pgTable("challenges", {
@@ -84,25 +153,52 @@ export const challenges = pgTable("challenges", {
   endTime: timestamp("end_time").notNull(),
 });
 
+// Challenges relations will be defined after userChallenges
+
 // User challenges table
 export const userChallenges = pgTable("user_challenges", {
   id: serial("id").primaryKey(),
-  userId: text("user_id").notNull(),
-  challengeId: integer("challenge_id").notNull(),
+  userId: text("user_id").notNull().references(() => users.firebaseId),
+  challengeId: integer("challenge_id").notNull().references(() => challenges.id),
   progress: integer("progress").default(0),
   completed: boolean("completed").default(false),
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Define user challenges relations
+export const userChallengesRelations = relations(userChallenges, ({ one }) => ({
+  user: one(users, {
+    fields: [userChallenges.userId],
+    references: [users.firebaseId],
+  }),
+  challenge: one(challenges, {
+    fields: [userChallenges.challengeId],
+    references: [challenges.id],
+  }),
+}));
+
+// Now define challenges relations after userChallenges is defined
+export const challengesRelations = relations(challenges, ({ many }) => ({
+  userChallenges: many(userChallenges),
+}));
+
 // Bluetooth devices table
 export const bluetoothDevices = pgTable("bluetooth_devices", {
   id: serial("id").primaryKey(),
   deviceId: text("device_id").notNull().unique(),
-  userId: text("user_id").notNull(),
+  userId: text("user_id").notNull().references(() => users.firebaseId),
   name: text("name"),
   lastSeen: timestamp("last_seen").defaultNow(),
 });
+
+// Define bluetooth devices relations
+export const bluetoothDevicesRelations = relations(bluetoothDevices, ({ one }) => ({
+  user: one(users, {
+    fields: [bluetoothDevices.userId],
+    references: [users.firebaseId],
+  }),
+}));
 
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({

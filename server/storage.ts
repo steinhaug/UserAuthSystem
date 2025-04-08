@@ -65,262 +65,238 @@ export interface IStorage {
   getBluetoothDevicesByUserId(userId: string): Promise<BluetoothDevice[]>;
 }
 
-export class MemStorage implements IStorage {
-  private usersData: Map<number, User>;
-  private friendsData: Map<string, Friend>;
-  private activitiesData: Map<string, Activity>;
-  private activityParticipantsData: Map<string, ActivityParticipant>;
-  private chatThreadsData: Map<string, ChatThread>;
-  private chatMessagesData: Map<string, ChatMessage>;
-  private challengesData: Map<string, Challenge>;
-  private userChallengesData: Map<string, UserChallenge>;
-  private bluetoothDevicesData: Map<string, BluetoothDevice>;
-  
-  currentUserId: number;
-  currentFriendId: number;
-  currentActivityId: number;
-  currentParticipantId: number;
-  currentChatThreadId: number;
-  currentChatMessageId: number;
-  currentChallengeId: number;
-  currentUserChallengeId: number;
-  currentBluetoothDeviceId: number;
+import { db } from "./db";
+import { eq, or, and } from "drizzle-orm";
 
-  constructor() {
-    this.usersData = new Map();
-    this.friendsData = new Map();
-    this.activitiesData = new Map();
-    this.activityParticipantsData = new Map();
-    this.chatThreadsData = new Map();
-    this.chatMessagesData = new Map();
-    this.challengesData = new Map();
-    this.userChallengesData = new Map();
-    this.bluetoothDevicesData = new Map();
-    
-    this.currentUserId = 1;
-    this.currentFriendId = 1;
-    this.currentActivityId = 1;
-    this.currentParticipantId = 1;
-    this.currentChatThreadId = 1;
-    this.currentChatMessageId = 1;
-    this.currentChallengeId = 1;
-    this.currentUserChallengeId = 1;
-    this.currentBluetoothDeviceId = 1;
-  }
-
+export class DatabaseStorage implements IStorage {
   // User methods
   async getUser(id: number): Promise<User | undefined> {
-    return this.usersData.get(id);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.usersData.values()).find(
-      (user) => user.username === username
-    );
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
   }
 
   async getUserByFirebaseId(firebaseId: string): Promise<User | undefined> {
-    return Array.from(this.usersData.values()).find(
-      (user) => user.firebaseId === firebaseId
-    );
+    const [user] = await db.select().from(users).where(eq(users.firebaseId, firebaseId));
+    return user;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = this.currentUserId++;
-    const now = new Date();
-    const user: User = { 
-      ...insertUser, 
-      id,
-      createdAt: now,
-      lastSeen: now
-    };
-    this.usersData.set(id, user);
+    const [user] = await db.insert(users).values(insertUser).returning();
     return user;
   }
 
   async updateUser(firebaseId: string, userData: Partial<User>): Promise<User | undefined> {
-    const user = await this.getUserByFirebaseId(firebaseId);
-    if (!user) return undefined;
-    
-    const updatedUser = { ...user, ...userData, lastSeen: new Date() };
-    this.usersData.set(user.id, updatedUser);
+    const now = new Date();
+    const [updatedUser] = await db
+      .update(users)
+      .set({ ...userData, lastSeen: now })
+      .where(eq(users.firebaseId, firebaseId))
+      .returning();
     return updatedUser;
   }
 
   async updateUserLocation(firebaseId: string, location: { latitude: number, longitude: number }): Promise<void> {
-    const user = await this.getUserByFirebaseId(firebaseId);
-    if (!user) return;
-    
-    const updatedUser = { ...user, location, lastSeen: new Date() };
-    this.usersData.set(user.id, updatedUser);
+    const now = new Date();
+    await db
+      .update(users)
+      .set({ location, lastSeen: now })
+      .where(eq(users.firebaseId, firebaseId));
   }
 
   // Friend methods
   async getFriendsByUserId(userId: string): Promise<Friend[]> {
-    return Array.from(this.friendsData.values()).filter(
-      (friend) => friend.userId === userId || friend.friendId === userId
-    );
+    return db
+      .select()
+      .from(friends)
+      .where(or(eq(friends.userId, userId), eq(friends.friendId, userId)));
   }
 
   async createFriendRequest(userId: string, friendId: string): Promise<Friend> {
-    const id = this.currentFriendId++;
-    const friend: Friend = {
-      id,
-      userId,
-      friendId,
-      status: 'pending',
-      createdAt: new Date()
-    };
-    this.friendsData.set(id.toString(), friend);
+    const [friend] = await db
+      .insert(friends)
+      .values({
+        userId,
+        friendId,
+        status: 'pending'
+      })
+      .returning();
     return friend;
   }
 
   async updateFriendRequest(requestId: string, status: string): Promise<Friend | undefined> {
-    const friendRequest = this.friendsData.get(requestId);
-    if (!friendRequest) return undefined;
-    
-    const updatedRequest = { ...friendRequest, status };
-    this.friendsData.set(requestId, updatedRequest);
+    const [updatedRequest] = await db
+      .update(friends)
+      .set({ status })
+      .where(eq(friends.id, parseInt(requestId)))
+      .returning();
     return updatedRequest;
   }
 
   // Activity methods
   async getActivities(): Promise<Activity[]> {
-    return Array.from(this.activitiesData.values());
+    return db.select().from(activities);
   }
 
   async getActivityById(id: string): Promise<Activity | undefined> {
-    return this.activitiesData.get(id);
+    const [activity] = await db
+      .select()
+      .from(activities)
+      .where(eq(activities.id, parseInt(id)));
+    return activity;
   }
 
   async createActivity(activity: InsertActivity): Promise<Activity> {
-    const id = this.currentActivityId++;
-    const newActivity: Activity = {
-      ...activity,
-      id,
-      createdAt: new Date()
-    };
-    this.activitiesData.set(id.toString(), newActivity);
+    const [newActivity] = await db
+      .insert(activities)
+      .values(activity)
+      .returning();
     return newActivity;
   }
 
   async joinActivity(activityId: string, userId: string): Promise<ActivityParticipant> {
-    const id = this.currentParticipantId++;
-    const participant: ActivityParticipant = {
-      id,
-      activityId: parseInt(activityId),
-      userId,
-      joinedAt: new Date()
-    };
-    this.activityParticipantsData.set(id.toString(), participant);
+    const [participant] = await db
+      .insert(activityParticipants)
+      .values({
+        activityId: parseInt(activityId),
+        userId
+      })
+      .returning();
     return participant;
   }
 
   // Chat methods
   async getChatThreadsByUserId(userId: string): Promise<ChatThread[]> {
-    return Array.from(this.chatThreadsData.values()).filter(
-      (thread) => thread.participants.includes(userId)
-    );
+    // This is a simplification - in a real app, you'd need a joining table to handle this properly
+    // since participants is an array
+    const threads = await db.select().from(chatThreads);
+    return threads.filter(thread => thread.participants.includes(userId));
   }
 
   async getChatMessagesByThreadId(threadId: string): Promise<ChatMessage[]> {
-    return Array.from(this.chatMessagesData.values()).filter(
-      (message) => message.threadId === threadId
-    );
+    return db
+      .select()
+      .from(chatMessages)
+      .where(eq(chatMessages.threadId, threadId));
   }
 
   async createChatThread(thread: InsertChatThread): Promise<ChatThread> {
-    const id = this.currentChatThreadId++;
-    const now = new Date();
-    const newThread: ChatThread = {
-      ...thread,
-      id,
-      createdAt: now,
-      updatedAt: now
-    };
-    this.chatThreadsData.set(id.toString(), newThread);
+    const [newThread] = await db
+      .insert(chatThreads)
+      .values(thread)
+      .returning();
     return newThread;
   }
 
   async createChatMessage(message: InsertChatMessage): Promise<ChatMessage> {
-    const id = this.currentChatMessageId++;
-    const newMessage: ChatMessage = {
-      ...message,
-      id,
-      createdAt: new Date()
-    };
-    this.chatMessagesData.set(id.toString(), newMessage);
+    const [newMessage] = await db
+      .insert(chatMessages)
+      .values(message)
+      .returning();
+    
+    // Update the last message ID and updated time in the chat thread
+    await db
+      .update(chatThreads)
+      .set({ 
+        lastMessageId: newMessage.id,
+        updatedAt: new Date()
+      })
+      .where(eq(chatThreads.id, parseInt(message.threadId)));
+    
     return newMessage;
   }
 
   // Challenge methods
   async getChallenges(): Promise<Challenge[]> {
-    return Array.from(this.challengesData.values());
+    return db.select().from(challenges);
   }
 
   async getUserChallenges(userId: string): Promise<UserChallenge[]> {
-    return Array.from(this.userChallengesData.values()).filter(
-      (challenge) => challenge.userId === userId
-    );
+    return db
+      .select()
+      .from(userChallenges)
+      .where(eq(userChallenges.userId, userId));
   }
 
   async acceptChallenge(challengeId: string, userId: string): Promise<UserChallenge> {
-    const id = this.currentUserChallengeId++;
-    const userChallenge: UserChallenge = {
-      id,
-      userId,
-      challengeId: parseInt(challengeId),
-      progress: 0,
-      completed: false,
-      createdAt: new Date()
-    };
-    this.userChallengesData.set(id.toString(), userChallenge);
+    const [userChallenge] = await db
+      .insert(userChallenges)
+      .values({
+        userId,
+        challengeId: parseInt(challengeId),
+        progress: 0,
+        completed: false
+      })
+      .returning();
     return userChallenge;
   }
 
   async updateChallengeProgress(challengeId: string, userId: string, progress: number): Promise<UserChallenge | undefined> {
-    // Find the user challenge
-    const userChallenge = Array.from(this.userChallengesData.values()).find(
-      (challenge) => challenge.challengeId === parseInt(challengeId) && challenge.userId === userId
-    );
-    
-    if (!userChallenge) return undefined;
-    
     // Get the challenge to check if the progress meets the target
-    const challenge = this.challengesData.get(challengeId);
+    const [challenge] = await db
+      .select()
+      .from(challenges)
+      .where(eq(challenges.id, parseInt(challengeId)));
     
-    // Update progress
+    // Determine if the challenge is completed
     const completed = challenge ? progress >= challenge.target : false;
-    const completedAt = completed ? new Date() : undefined;
+    const completedAt = completed ? new Date() : null;
     
-    const updatedChallenge: UserChallenge = {
-      ...userChallenge,
-      progress,
-      completed,
-      completedAt
-    };
+    // Update the user challenge
+    const [updatedChallenge] = await db
+      .update(userChallenges)
+      .set({ 
+        progress, 
+        completed,
+        completedAt
+      })
+      .where(
+        and(
+          eq(userChallenges.challengeId, parseInt(challengeId)),
+          eq(userChallenges.userId, userId)
+        )
+      )
+      .returning();
     
-    this.userChallengesData.set(userChallenge.id.toString(), updatedChallenge);
     return updatedChallenge;
   }
 
   // Bluetooth methods
   async registerBluetoothDevice(device: InsertBluetoothDevice): Promise<BluetoothDevice> {
-    const id = this.currentBluetoothDeviceId++;
-    const newDevice: BluetoothDevice = {
-      ...device,
-      id,
-      lastSeen: new Date()
-    };
-    this.bluetoothDevicesData.set(id.toString(), newDevice);
+    // Check if device already exists
+    const [existingDevice] = await db
+      .select()
+      .from(bluetoothDevices)
+      .where(eq(bluetoothDevices.deviceId, device.deviceId));
+    
+    if (existingDevice) {
+      // Update last seen time
+      const [updatedDevice] = await db
+        .update(bluetoothDevices)
+        .set({ lastSeen: new Date() })
+        .where(eq(bluetoothDevices.deviceId, device.deviceId))
+        .returning();
+      return updatedDevice;
+    }
+    
+    // Create new device
+    const [newDevice] = await db
+      .insert(bluetoothDevices)
+      .values(device)
+      .returning();
     return newDevice;
   }
 
   async getBluetoothDevicesByUserId(userId: string): Promise<BluetoothDevice[]> {
-    return Array.from(this.bluetoothDevicesData.values()).filter(
-      (device) => device.userId === userId
-    );
+    return db
+      .select()
+      .from(bluetoothDevices)
+      .where(eq(bluetoothDevices.userId, userId));
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
