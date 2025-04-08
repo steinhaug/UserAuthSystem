@@ -51,7 +51,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const shouldLoadDevUser = () => {
     if (!DEVELOPMENT_MODE) return false;
     const devLoggedIn = localStorage.getItem('devModeLoggedIn');
-    return devLoggedIn !== 'false';
+    console.log("Development mode login status:", devLoggedIn);
+    return devLoggedIn === 'true';
   };
 
   useEffect(() => {
