@@ -2,9 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { Button } from '@/components/ui/button';
+import { VoiceSearch } from "../../components/map/VoiceSearch";
+import { LocationSearch } from "../../components/map/LocationSearch";
 import { 
   MapIcon, SunIcon, MoonIcon, MountainIcon, 
-  LayersIcon, MapPinIcon, CrosshairIcon 
+  LayersIcon, MapPinIcon, CrosshairIcon,
+  MicIcon, SearchIcon
 } from 'lucide-react';
 
 // Set Mapbox token globally
@@ -198,6 +201,90 @@ export default function SimpleMapView() {
     }
   }, [userLocation, nearbyPlaces]);
   
+  // State for search results
+  const [searchResults, setSearchResults] = useState<Array<{
+    name: string;
+    address?: string;
+    coordinates: [number, number]; // [longitude, latitude]
+    description?: string;
+    type?: string;
+  }>>([]);
+  
+  const [isSearching, setIsSearching] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState<number | null>(null);
+  
+  // Handle search for a location
+  const handleLocationSearch = async (results: Array<{
+    name: string;
+    address?: string;
+    coordinates: [number, number];
+    description?: string;
+    type?: string;
+  }>) => {
+    setSearchResults(results);
+    
+    if (results.length > 0 && map.current) {
+      // Add markers for each result
+      results.forEach((result, index) => {
+        // Create marker element
+        const el = document.createElement('div');
+        el.className = 'search-result-marker';
+        
+        // Style the marker with a number
+        el.innerHTML = `<div class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold border-2 border-white shadow-lg">${index + 1}</div>`;
+        
+        // Add marker to map
+        new mapboxgl.Marker(el)
+          .setLngLat(result.coordinates)
+          .setPopup(new mapboxgl.Popup({ offset: 25 })
+            .setHTML(`<strong>${result.name}</strong>${result.address ? `<br>${result.address}` : ''}${result.description ? `<br><span class="text-xs">${result.description}</span>` : ''}`))
+          .addTo(map.current);
+      });
+      
+      // Fit map to show all results
+      const bounds = new mapboxgl.LngLatBounds();
+      results.forEach(result => {
+        bounds.extend(result.coordinates);
+      });
+      
+      // Add padding
+      map.current.fitBounds(bounds, {
+        padding: 100,
+        maxZoom: 15
+      });
+    }
+  };
+  
+  // Handle a search query from voice or text
+  const handleSearch = async (query: string) => {
+    if (!query.trim()) return;
+    
+    setIsSearching(true);
+    try {
+      const response = await fetch('/api/openai/location-search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Search failed: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.places && data.places.length > 0) {
+        handleLocationSearch(data.places);
+      }
+    } catch (error) {
+      console.error('Error searching for location:', error);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+  
   // Center map on user
   const handleCenterOnUser = () => {
     if (!map.current || !userLocation) return;
@@ -312,6 +399,60 @@ export default function SimpleMapView() {
                 <MoonIcon className="h-4 w-4" />
                 <span className="text-xs">Dark</span>
               </Button>
+            </div>
+            
+            {/* Search controls */}
+            <div className="absolute top-4 left-4 z-10 w-full max-w-md px-4">
+              <div className="bg-white/90 rounded-lg shadow-lg overflow-hidden">
+                {/* Location search */}
+                <LocationSearch onResultsFound={handleLocationSearch} />
+                
+                {/* Voice search button */}
+                <div className="absolute right-8 top-3">
+                  <VoiceSearch 
+                    onSearch={handleSearch}
+                    isSearching={isSearching}
+                  />
+                </div>
+              </div>
+              
+              {/* Search results list */}
+              {searchResults.length > 0 && (
+                <div className="bg-white/90 rounded-lg shadow-lg mt-2 max-h-72 overflow-y-auto">
+                  <div className="p-2 border-b border-gray-200">
+                    <h3 className="text-sm font-medium text-gray-700">Search Results</h3>
+                  </div>
+                  <ul className="divide-y divide-gray-200">
+                    {searchResults.map((result, index) => (
+                      <li 
+                        key={index}
+                        className={`p-3 hover:bg-gray-100 cursor-pointer ${selectedLocation === index ? 'bg-blue-50' : ''}`}
+                        onClick={() => {
+                          setSelectedLocation(index);
+                          if (map.current) {
+                            map.current.flyTo({
+                              center: result.coordinates,
+                              zoom: 16,
+                              essential: true
+                            });
+                          }
+                        }}
+                      >
+                        <div className="flex items-start">
+                          <div className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center mr-3">
+                            {index + 1}
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-medium">{result.name}</h4>
+                            {result.address && <p className="text-xs text-gray-500">{result.address}</p>}
+                            {result.type && <p className="text-xs text-gray-400">{result.type}</p>}
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
             
             {/* User's Position Button */}

@@ -11,6 +11,7 @@ import {
 } from "./utils/apiErrorHandler";
 import { log } from "./vite";
 import { WebSocketServer, WebSocket } from 'ws';
+import openaiRouter from './openai';
 
 // Initialize Firebase Admin
 try {
@@ -263,6 +264,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Internal server error" });
     }
   });
+
+  // Mount the OpenAI router - we don't require authentication for these endpoints
+  // to allow for guest voice search functionality
+  app.use('/api/openai', openaiRouter);
 
   const httpServer = createServer(app);
   
