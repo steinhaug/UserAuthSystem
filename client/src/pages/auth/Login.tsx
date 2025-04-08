@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { loginWithEmail, loginWithGoogle } from '@/lib/firebase';
+import { loginWithEmail, loginWithGoogle, auth } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -22,6 +22,16 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const [authMode, setAuthMode] = useState<string>('Checking...');
+  
+  useEffect(() => {
+    // Display whether we're using real or mock authentication
+    if (DEVELOPMENT_MODE) {
+      setAuthMode('Mock Authentication (Development Mode)');
+    } else {
+      setAuthMode('Real Firebase Authentication');
+    }
+  }, []);
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -159,6 +169,13 @@ export default function Login() {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="p-6">
+        <div className="text-center mb-6">
+          <div className={`text-sm py-1 px-3 rounded-full inline-block ${
+            DEVELOPMENT_MODE ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'
+          }`}>
+            {authMode}
+          </div>
+        </div>
         <FormField
           control={form.control}
           name="email"

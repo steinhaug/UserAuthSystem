@@ -27,17 +27,37 @@ import { app, auth, db } from './firebaseConfig';
 // Auth providers
 const googleProvider = new GoogleAuthProvider();
 
+// Add additional scopes for Google OAuth
+googleProvider.addScope('profile');
+googleProvider.addScope('email');
+
 // Authentication functions
-export const loginWithEmail = (email: string, password: string) => {
-  return signInWithEmailAndPassword(auth, email, password);
+export const loginWithEmail = async (email: string, password: string) => {
+  try {
+    console.log('Attempting Firebase authentication with email:', email);
+    const result = await signInWithEmailAndPassword(auth, email, password);
+    console.log('Firebase authentication successful', result.user.uid);
+    return result;
+  } catch (error) {
+    console.error('Firebase authentication error:', error);
+    throw error;
+  }
 };
 
 export const signupWithEmail = (email: string, password: string) => {
   return createUserWithEmailAndPassword(auth, email, password);
 };
 
-export const loginWithGoogle = () => {
-  return signInWithPopup(auth, googleProvider);
+export const loginWithGoogle = async () => {
+  try {
+    console.log('Attempting Google authentication');
+    const result = await signInWithPopup(auth, googleProvider);
+    console.log('Google authentication successful', result.user.uid);
+    return result;
+  } catch (error) {
+    console.error('Google authentication error:', error);
+    throw error;
+  }
 };
 
 export const updateUserProfile = (displayName: string, photoURL?: string) => {

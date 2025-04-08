@@ -10,12 +10,10 @@ export function initializeFirebaseAppCheck() {
   // Only use App Check in production mode
   if (!DEVELOPMENT_MODE) {
     try {
-      // Enable debug mode for development
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('Initializing Firebase App Check in debug mode');
-        // @ts-ignore - This is a valid property in firebase/app-check
-        self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
-      }
+      // Always enable debug mode for now until App Check is properly configured
+      console.log('Initializing Firebase App Check in debug mode');
+      // @ts-ignore - This is a valid property in firebase/app-check
+      self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
       
       // Initialize App Check with reCAPTCHA v3
       const appCheck = initializeAppCheck(app, {

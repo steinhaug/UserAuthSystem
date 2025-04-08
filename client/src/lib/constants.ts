@@ -1,7 +1,7 @@
 // Global constants for the application
 
 // Development mode flag - set to true to use mock authentication
-// Firebase App Check is preventing normal authentication, so we need to use dev mode
+// Firebase App Check may be preventing normal authentication, so we use dev mode
 export const DEVELOPMENT_MODE = true;
 
 // API endpoints
