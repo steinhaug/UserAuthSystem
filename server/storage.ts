@@ -31,7 +31,13 @@ import {
   type InsertSearchHistory,
   searchPreferences,
   type SearchPreferences,
-  type InsertSearchPreferences
+  type InsertSearchPreferences,
+  activityPreferences,
+  type ActivityPreferences,
+  type InsertActivityPreferences,
+  activityRecommendations,
+  type ActivityRecommendation,
+  type InsertActivityRecommendation
 } from "@shared/schema";
 
 export interface IStorage {
@@ -78,14 +84,37 @@ export interface IStorage {
   // Search methods
   saveSearchHistory(searchData: InsertSearchHistory): Promise<SearchHistory>;
   getUserSearchHistory(userId: string, limit?: number): Promise<SearchHistory[]>;
+  getSearchHistoryItem(id: number): Promise<SearchHistory | undefined>;
+  updateSearchHistoryItem(id: number, data: Partial<SearchHistory>): Promise<SearchHistory>;
   getSearchSuggestions(userId: string, prefix: string): Promise<string[]>;
   getUserSearchPreferences(userId: string): Promise<SearchPreferences | undefined>;
   createSearchPreferences(preferences: InsertSearchPreferences): Promise<SearchPreferences>;
   updateSearchPreferences(userId: string, preferences: Partial<SearchPreferences>): Promise<SearchPreferences | undefined>;
+  
+  // Activity Preferences methods
+  getUserActivityPreferences(userId: string): Promise<ActivityPreferences | undefined>;
+  createActivityPreferences(preferences: InsertActivityPreferences): Promise<ActivityPreferences>;
+  updateActivityPreferences(userId: string, preferences: Partial<ActivityPreferences>): Promise<ActivityPreferences | undefined>;
+  
+  // Activity Recommendations methods  
+  getActivityRecommendationsForUser(userId: string): Promise<ActivityRecommendation[]>;
+  createActivityRecommendation(recommendation: InsertActivityRecommendation): Promise<ActivityRecommendation>;
+  updateActivityRecommendationStatus(id: number, status: string): Promise<ActivityRecommendation | undefined>;
+  generateRecommendationsForUser(userId: string): Promise<ActivityRecommendation[]>;
 }
 
-import { db } from "./db";
-import { eq, or, and, inArray, desc } from "drizzle-orm";
+import { db, pool } from "./db";
+import { 
+  eq, 
+  or, 
+  and, 
+  inArray, 
+  not as notInArray, 
+  desc, 
+  gt, 
+  ne,
+  SQL, sql
+} from "drizzle-orm";
 import { handleDatabaseOperation } from "./utils/errorHandler";
 
 export class DatabaseStorage implements IStorage {
@@ -450,6 +479,33 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
   }
   
+  // Get a specific search history item by ID
+  async getSearchHistoryItem(id: number): Promise<SearchHistory | undefined> {
+    const [item] = await db
+      .select()
+      .from(searchHistory)
+      .where(eq(searchHistory.id, id));
+    return item;
+  }
+  
+  // Update a search history item (tags, notes, favorite status)
+  async updateSearchHistoryItem(id: number, data: Partial<SearchHistory>): Promise<SearchHistory> {
+    // Make sure we only update allowed fields
+    const allowedUpdates: Partial<SearchHistory> = {};
+    
+    if (data.tags !== undefined) allowedUpdates.tags = data.tags;
+    if (data.notes !== undefined) allowedUpdates.notes = data.notes;
+    if (data.favorite !== undefined) allowedUpdates.favorite = data.favorite;
+    
+    const [updated] = await db
+      .update(searchHistory)
+      .set(allowedUpdates)
+      .where(eq(searchHistory.id, id))
+      .returning();
+    
+    return updated;
+  }
+  
   async getSearchSuggestions(userId: string, prefix: string): Promise<string[]> {
     // Get user's search history, ordered by most recent first
     const history = await db
@@ -577,6 +633,248 @@ export class DatabaseStorage implements IStorage {
     
     return updatedPrefs;
   }
+  
+  // Activity Preferences methods
+  async getUserActivityPreferences(userId: string): Promise<ActivityPreferences | undefined> {
+    const [preferences] = await db
+      .select()
+      .from(activityPreferences)
+      .where(eq(activityPreferences.userId, userId));
+    return preferences;
+  }
+  
+  async createActivityPreferences(preferences: InsertActivityPreferences): Promise<ActivityPreferences> {
+    return handleDatabaseOperation(
+      async () => {
+        const [newPreferences] = await db
+          .insert(activityPreferences)
+          .values(preferences)
+          .returning();
+        return newPreferences;
+      },
+      `Failed to create activity preferences for user: ${preferences.userId}`,
+      'activity-preferences-creation'
+    );
+  }
+  
+  async updateActivityPreferences(userId: string, preferences: Partial<ActivityPreferences>): Promise<ActivityPreferences | undefined> {
+    const [updatedPrefs] = await db
+      .update(activityPreferences)
+      .set({ 
+        ...preferences,
+        updatedAt: new Date()
+      })
+      .where(eq(activityPreferences.userId, userId))
+      .returning();
+    
+    return updatedPrefs;
+  }
+  
+  // Activity Recommendations methods
+  async getActivityRecommendationsForUser(userId: string): Promise<ActivityRecommendation[]> {
+    return db
+      .select()
+      .from(activityRecommendations)
+      .where(eq(activityRecommendations.userId, userId))
+      .orderBy(desc(activityRecommendations.score));
+  }
+  
+  async createActivityRecommendation(recommendation: InsertActivityRecommendation): Promise<ActivityRecommendation> {
+    return handleDatabaseOperation(
+      async () => {
+        const [newRecommendation] = await db
+          .insert(activityRecommendations)
+          .values(recommendation)
+          .returning();
+        return newRecommendation;
+      },
+      `Failed to create activity recommendation for user: ${recommendation.userId}`,
+      'activity-recommendation-creation'
+    );
+  }
+  
+  async updateActivityRecommendationStatus(id: number, status: string): Promise<ActivityRecommendation | undefined> {
+    const [updatedRecommendation] = await db
+      .update(activityRecommendations)
+      .set({ 
+        status,
+        updatedAt: new Date()
+      })
+      .where(eq(activityRecommendations.id, id))
+      .returning();
+    
+    return updatedRecommendation;
+  }
+  
+  async generateRecommendationsForUser(userId: string): Promise<ActivityRecommendation[]> {
+    return handleDatabaseOperation(
+      async () => {
+        // Get user's activity preferences
+        const [userPreferences] = await db
+          .select()
+          .from(activityPreferences)
+          .where(eq(activityPreferences.userId, userId));
+        
+        if (!userPreferences) {
+          throw new Error('User activity preferences not found');
+        }
+        
+        // Get user's past activity participations to avoid recommending duplicates
+        const userParticipations = await db
+          .select()
+          .from(activityParticipants)
+          .where(eq(activityParticipants.userId, userId));
+        
+        const participatedActivityIds = userParticipations.map(p => p.activityId);
+        
+        // Get other users' activities that match the user's preferences
+        const now = new Date();
+        
+        // Build query with drizzle-orm directly
+        // Get activities that haven't started yet and created by other users
+        let candidateActivities = await db
+          .select()
+          .from(activities)
+          .where(
+            and(
+              gt(activities.startTime, now),
+              ne(activities.creatorId, userId)
+            )
+          );
+        
+        // If there are activities the user has participated in, filter them out
+        if (participatedActivityIds.length > 0) {
+          // Use array.filter to do the filtering in-memory 
+          // since we're having issues with the SQL generation
+          candidateActivities = candidateActivities.filter(activity => 
+            !participatedActivityIds.includes(activity.id)
+          );
+        }
+        
+        // Score and filter activities based on user preferences
+        const scoredActivities = candidateActivities.map(activity => {
+          let score = 50; // Base score
+          
+          // Category match
+          if (userPreferences.preferredCategories.includes(activity.category)) {
+            score += 20;
+          }
+          
+          // Day of week match
+          const activityDay = new Date(activity.startTime).getDay();
+          if (userPreferences.preferredDayOfWeek.includes(activityDay)) {
+            score += 10;
+          }
+          
+          // Time of day match
+          const activityHour = new Date(activity.startTime).getHours();
+          let timeOfDay = 'morning';
+          if (activityHour >= 12 && activityHour < 17) timeOfDay = 'afternoon';
+          else if (activityHour >= 17 && activityHour < 21) timeOfDay = 'evening';
+          else if (activityHour >= 21 || activityHour < 6) timeOfDay = 'night';
+          
+          if (userPreferences.preferredTimeOfDay.includes(timeOfDay)) {
+            score += 10;
+          }
+          
+          // Distance consideration (if location is available)
+          // This is a simplification - in a real app you'd calculate the actual distance
+          if (activity.location && userPreferences.preferredDistance) {
+            // Simulate distance calculation - in a real app you'd use actual coordinates
+            const distanceScore = Math.min(20, Math.round(20 * (userPreferences.preferredDistance / 20)));
+            score += distanceScore;
+          }
+          
+          // Match with participation history
+          let historyMatch = false;
+          
+          // Safely check if participationHistory exists and is an array
+          if (userPreferences.participationHistory && 
+              Array.isArray(userPreferences.participationHistory)) {
+            historyMatch = userPreferences.participationHistory.some(
+              (history: any) => {
+                if (history && typeof history === 'object') {
+                  return history.category === activity.category && 
+                         typeof history.count === 'number' && 
+                         history.count > 0;
+                }
+                return false;
+              }
+            );
+          }
+          
+          if (historyMatch) {
+            score += 10;
+          }
+          
+          return {
+            activityId: activity.id,
+            score,
+            reason: generateRecommendationReason(activity, userPreferences, score)
+          };
+        });
+        
+        // Filter for activities with a score above threshold
+        const highScoredActivities = scoredActivities
+          .filter(activity => activity.score >= 60)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 10); // Limit to top 10
+        
+        // Create recommendation records
+        const recommendations: ActivityRecommendation[] = [];
+        
+        for (const activity of highScoredActivities) {
+          const [recommendation] = await db
+            .insert(activityRecommendations)
+            .values({
+              userId,
+              activityId: activity.activityId,
+              score: activity.score,
+              status: 'pending',
+              reason: activity.reason
+            })
+            .returning();
+          
+          recommendations.push(recommendation);
+        }
+        
+        return recommendations;
+      },
+      `Failed to generate activity recommendations for user: ${userId}`,
+      'activity-recommendation-generation'
+    );
+  }
+}
+
+// Helper function for generating recommendation reasons
+function generateRecommendationReason(
+  activity: Activity, 
+  preferences: ActivityPreferences, 
+  score: number
+): string {
+  const reasons = [];
+  
+  if (preferences.preferredCategories.includes(activity.category)) {
+    reasons.push(`This ${activity.category} activity matches your preferred categories`);
+  }
+  
+  const activityDay = new Date(activity.startTime).getDay();
+  if (preferences.preferredDayOfWeek.includes(activityDay)) {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    reasons.push(`This activity happens on ${days[activityDay]}, which matches your availability`);
+  }
+  
+  // Suggest based on match score
+  if (score >= 80) {
+    reasons.push("This activity is a great match for your preferences");
+  } else if (score >= 70) {
+    reasons.push("This activity matches your preferences well");
+  } else {
+    reasons.push("This activity may interest you based on your preferences");
+  }
+  
+  // Join the reasons with semicolons for readability
+  return reasons.join('; ');
 }
 
 export const storage = new DatabaseStorage();

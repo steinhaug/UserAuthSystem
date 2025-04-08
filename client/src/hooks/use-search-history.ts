@@ -157,6 +157,26 @@ export function useSearchHistory() {
     }
   };
 
+  // Update a search history item
+  const updateSearchHistoryItemMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number, data: Partial<SearchHistory> }) => {
+      return apiRequest(`/api/search/history/${id}`, {
+        method: 'PATCH',
+        data,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/search/history'] });
+    },
+  });
+  
+  // Update a search history item with tags, notes, or favorite status
+  const updateSearchHistoryItem = (id: number, data: Partial<SearchHistory>) => {
+    if (isAuthenticated) {
+      updateSearchHistoryItemMutation.mutate({ id, data });
+    }
+  };
+
   return {
     searchHistory,
     isHistoryLoading,
@@ -170,7 +190,9 @@ export function useSearchHistory() {
     addFavoriteLocation,
     addFavoriteCategory,
     updateLastLocation,
+    updateSearchHistoryItem,
     isSaving: saveSearchMutation.isPending,
     isUpdatingPreferences: updatePreferencesMutation.isPending,
+    isUpdatingHistoryItem: updateSearchHistoryItemMutation.isPending,
   };
 }

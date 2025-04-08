@@ -27,7 +27,7 @@ export const users = pgTable("users", {
 });
 
 // Define user relations
-export const usersRelations = relations(users, ({ many }) => ({
+export const usersRelations = relations(users, ({ many, one }) => ({
   sentFriendRequests: many(friends, { relationName: "userFriends" }),
   receivedFriendRequests: many(friends, { relationName: "friendUser" }),
   activities: many(activities),
@@ -36,6 +36,8 @@ export const usersRelations = relations(users, ({ many }) => ({
   receivedMessages: many(chatMessages, { relationName: "receiver" }),
   userChallenges: many(userChallenges),
   bluetoothDevices: many(bluetoothDevices),
+  activityPreferences: one(activityPreferences),
+  activityRecommendations: many(activityRecommendations),
 }));
 
 // Friends table
@@ -252,12 +254,16 @@ export const searchHistory = pgTable("search_history", {
   resultCount: integer("result_count"),
   timestamp: timestamp("timestamp").notNull().defaultNow(),
   category: text("category"), // e.g., "restaurant", "cafe", etc.
+  tags: text("tags").array(), // User-defined tags for organizing searches
+  favorite: boolean("favorite").notNull().default(false), // Mark as favorite
+  notes: text("notes"), // User notes about this search
   successful: boolean("successful").notNull().default(true)
 }, (table) => {
   return {
     userIdIdx: index("search_history_user_id_idx").on(table.userId),
     timestampIdx: index("search_history_timestamp_idx").on(table.timestamp),
-    categoryIdx: index("search_history_category_idx").on(table.category)
+    categoryIdx: index("search_history_category_idx").on(table.category),
+    favoriteIdx: index("search_history_favorite_idx").on(table.favorite)
   };
 });
 
@@ -289,6 +295,61 @@ export const searchPreferencesRelations = relations(searchPreferences, ({ one })
   user: one(users, {
     fields: [searchPreferences.userId],
     references: [users.firebaseId],
+  }),
+}));
+
+// Activity preferences table
+export const activityPreferences = pgTable("activity_preferences", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.firebaseId).unique(),
+  preferredCategories: text("preferred_categories").array().notNull().default([]),
+  preferredDayOfWeek: integer("preferred_day_of_week").array().notNull().default([]), // 0-6 (Sunday-Saturday)
+  preferredTimeOfDay: text("preferred_time_of_day").array().notNull().default([]), // morning, afternoon, evening, night
+  preferredDistance: integer("preferred_distance").notNull().default(10), // Distance in km
+  participationHistory: jsonb("participation_history").notNull().default([]), // Categories with count
+  updatedAt: timestamp("updated_at").defaultNow()
+}, (table) => {
+  return {
+    userIdIdx: index("activity_preferences_user_id_idx").on(table.userId)
+  };
+});
+
+// Define activity preferences relations
+export const activityPreferencesRelations = relations(activityPreferences, ({ one }) => ({
+  user: one(users, {
+    fields: [activityPreferences.userId],
+    references: [users.firebaseId],
+  }),
+}));
+
+// Activity recommendations table
+export const activityRecommendations = pgTable("activity_recommendations", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.firebaseId),
+  activityId: integer("activity_id").notNull().references(() => activities.id),
+  score: integer("score").notNull(), // 1-100 match score
+  status: text("status").notNull().default("pending"), // pending, viewed, accepted, rejected
+  reason: text("reason").notNull(), // Why was this activity recommended
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow()
+}, (table) => {
+  return {
+    userIdIdx: index("activity_recommendations_user_id_idx").on(table.userId),
+    activityIdIdx: index("activity_recommendations_activity_id_idx").on(table.activityId),
+    userActivityIdx: index("activity_recommendations_user_activity_idx").on(table.userId, table.activityId),
+    scoreIdx: index("activity_recommendations_score_idx").on(table.score),
+  };
+});
+
+// Define activity recommendations relations
+export const activityRecommendationsRelations = relations(activityRecommendations, ({ one }) => ({
+  user: one(users, {
+    fields: [activityRecommendations.userId],
+    references: [users.firebaseId],
+  }),
+  activity: one(activities, {
+    fields: [activityRecommendations.activityId],
+    references: [activities.id],
   }),
 }));
 
@@ -353,6 +414,17 @@ export const insertSearchPreferencesSchema = createInsertSchema(searchPreference
   updatedAt: true,
 });
 
+export const insertActivityPreferencesSchema = createInsertSchema(activityPreferences).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export const insertActivityRecommendationSchema = createInsertSchema(activityRecommendations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -386,3 +458,9 @@ export type SearchHistory = typeof searchHistory.$inferSelect;
 
 export type InsertSearchPreferences = z.infer<typeof insertSearchPreferencesSchema>;
 export type SearchPreferences = typeof searchPreferences.$inferSelect;
+
+export type InsertActivityPreferences = z.infer<typeof insertActivityPreferencesSchema>;
+export type ActivityPreferences = typeof activityPreferences.$inferSelect;
+
+export type InsertActivityRecommendation = z.infer<typeof insertActivityRecommendationSchema>;
+export type ActivityRecommendation = typeof activityRecommendations.$inferSelect;

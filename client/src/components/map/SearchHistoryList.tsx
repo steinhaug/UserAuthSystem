@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useSearchHistory } from '../../hooks/use-search-history';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -19,7 +21,23 @@ import {
   Calendar,
   RefreshCw,
   Bookmark,
+  Tag,
+  Heart,
+  Edit,
+  Save,
+  X,
 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface SearchHistoryListProps {
   onSelectSearch: (query: string) => void;
@@ -34,8 +52,14 @@ export function SearchHistoryList({ onSelectSearch, onSelectLocation, className 
     searchPreferences,
     isPreferencesLoading,
     addFavoriteLocation,
-    addFavoriteCategory
+    addFavoriteCategory,
+    updateSearchHistoryItem
   } = useSearchHistory();
+  
+  // State for editing search history tags and notes
+  const [editingItem, setEditingItem] = useState<number | null>(null);
+  const [newTag, setNewTag] = useState('');
+  const [editedNotes, setEditedNotes] = useState('');
 
   if (isHistoryLoading || isPreferencesLoading) {
     return (
@@ -102,6 +126,39 @@ export function SearchHistoryList({ onSelectSearch, onSelectLocation, className 
 
   const handleSaveCategory = (category: string) => {
     addFavoriteCategory(category);
+  };
+  
+  // Handle adding and managing tags
+  const handleStartEditing = (index: number, item: any) => {
+    setEditingItem(index);
+    setEditedNotes(item.notes || '');
+  };
+  
+  const handleAddTag = (index: number, item: any) => {
+    if (!newTag.trim()) return;
+    
+    const tags = Array.isArray(item.tags) ? [...item.tags] : [];
+    if (!tags.includes(newTag.trim())) {
+      const updatedTags = [...tags, newTag.trim()];
+      updateSearchHistoryItem(item.id, { tags: updatedTags });
+      setNewTag('');
+    }
+  };
+  
+  const handleRemoveTag = (index: number, item: any, tagToRemove: string) => {
+    if (!Array.isArray(item.tags)) return;
+    
+    const updatedTags = item.tags.filter((tag: string) => tag !== tagToRemove);
+    updateSearchHistoryItem(item.id, { tags: updatedTags });
+  };
+  
+  const handleSaveNotes = (index: number, item: any) => {
+    updateSearchHistoryItem(item.id, { notes: editedNotes });
+    setEditingItem(null);
+  };
+  
+  const handleToggleFavorite = (item: any) => {
+    updateSearchHistoryItem(item.id, { favorite: !item.favorite });
   };
 
   return (
@@ -170,38 +227,158 @@ export function SearchHistoryList({ onSelectSearch, onSelectLocation, className 
               </div>
               <div className="space-y-2">
                 {searchHistory.map((item, i) => (
-                  <div key={`history-${i}`} className="bg-muted/40 rounded-lg p-2">
+                  <div key={`history-${i}`} className={`${item.favorite ? 'bg-primary/10' : 'bg-muted/40'} rounded-lg p-2`}>
                     <div className="flex justify-between items-start">
-                      <Button 
-                        variant="ghost" 
-                        className="p-0 h-auto font-medium text-left justify-start hover:bg-transparent"
-                        onClick={() => onSelectSearch(item.query)}
-                      >
-                        {item.query}
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          className="h-6 w-6 p-0"
+                          onClick={() => handleToggleFavorite(item)}
+                        >
+                          <Heart className={`h-4 w-4 ${item.favorite ? 'text-red-500 fill-red-500' : 'text-muted-foreground'}`} />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          className="p-0 h-auto font-medium text-left justify-start hover:bg-transparent"
+                          onClick={() => onSelectSearch(item.query)}
+                        >
+                          {item.query}
+                        </Button>
+                      </div>
                       <div className="flex gap-1">
                         {item.latitude && item.longitude && (
-                          <Button 
-                            size="icon" 
-                            variant="ghost" 
-                            className="h-7 w-7"
-                            onClick={() => handleSaveLocation(item)}
-                          >
-                            <Star className="h-4 w-4" />
-                          </Button>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button 
+                                  size="icon" 
+                                  variant="ghost" 
+                                  className="h-7 w-7"
+                                  onClick={() => handleSaveLocation(item)}
+                                >
+                                  <Star className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Save to favorite locations</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         )}
                         {item.category && (
-                          <Button 
-                            size="icon" 
-                            variant="ghost" 
-                            className="h-7 w-7"
-                            onClick={() => handleSaveCategory(item.category!)}
-                          >
-                            <Bookmark className="h-4 w-4" />
-                          </Button>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button 
+                                  size="icon" 
+                                  variant="ghost" 
+                                  className="h-7 w-7"
+                                  onClick={() => handleSaveCategory(item.category!)}
+                                >
+                                  <Bookmark className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Save category as favorite</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         )}
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button 
+                                size="icon" 
+                                variant="ghost" 
+                                className="h-7 w-7"
+                                onClick={() => handleStartEditing(i, item)}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Add notes or tags</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       </div>
                     </div>
+                    
+                    {/* Tags display */}
+                    {Array.isArray(item.tags) && item.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {item.tags.map((tag: string, tagIndex: number) => (
+                          <Badge 
+                            key={`tag-${tagIndex}`} 
+                            variant="outline"
+                            className="text-xs py-0 h-5"
+                          >
+                            <Tag className="h-3 w-3 mr-1" />
+                            {tag}
+                            {editingItem === i && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-3 w-3 ml-1 p-0"
+                                onClick={() => handleRemoveTag(i, item, tag)}
+                              >
+                                <X className="h-2 w-2" />
+                              </Button>
+                            )}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {/* Notes display */}
+                    {item.notes && editingItem !== i && (
+                      <div className="mt-1 text-xs text-muted-foreground bg-background/50 p-1 rounded">
+                        {item.notes}
+                      </div>
+                    )}
+                    
+                    {/* Edit form */}
+                    {editingItem === i && (
+                      <div className="mt-2 space-y-2">
+                        <div className="flex gap-2">
+                          <Input 
+                            value={newTag}
+                            onChange={(e) => setNewTag(e.target.value)}
+                            placeholder="Add tag..."
+                            className="h-8 text-xs"
+                          />
+                          <Button 
+                            size="sm" 
+                            className="h-8"
+                            onClick={() => handleAddTag(i, item)}
+                          >
+                            <Tag className="h-3 w-3 mr-1" />
+                            Add
+                          </Button>
+                        </div>
+                        
+                        <Input 
+                          value={editedNotes}
+                          onChange={(e) => setEditedNotes(e.target.value)}
+                          placeholder="Add notes..."
+                          className="h-8 text-xs"
+                        />
+                        
+                        <div className="flex justify-end">
+                          <Button 
+                            size="sm" 
+                            variant="default"
+                            className="h-7"
+                            onClick={() => handleSaveNotes(i, item)}
+                          >
+                            <Save className="h-3 w-3 mr-1" />
+                            Save
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    
                     <div className="flex items-center text-xs text-muted-foreground mt-1">
                       <Calendar className="h-3 w-3 mr-1" />
                       <span>{formatTimestamp(item.timestamp)}</span>

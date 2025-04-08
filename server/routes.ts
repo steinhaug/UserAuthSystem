@@ -29,7 +29,13 @@ try {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Authentication middleware with extended Request type
   interface AuthenticatedRequest extends Request {
-    user?: any;
+    user: {
+      uid: string;
+      email?: string;
+      name?: string;
+      picture?: string;
+      [key: string]: any; // For andre Firebase auth egenskaper
+    };
   }
   
   const authenticateUser = async (
@@ -97,7 +103,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/users/profile", authenticateUser, async (req, res) => {
+  app.post("/api/users/profile", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { displayName, status, interests } = req.body;
       const updatedUser = await storage.updateUser(req.user.uid, {
@@ -295,6 +301,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(history);
     } catch (error) {
       console.error("Error fetching search history:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  // Update search history item with tags, notes, or favorite status
+  app.patch("/api/search/history/:id", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const itemId = parseInt(req.params.id);
+      if (isNaN(itemId)) {
+        return res.status(400).json({ message: "Invalid search history ID" });
+      }
+      
+      // Only allow certain fields to be updated
+      const allowedFields = ['tags', 'notes', 'favorite'];
+      const updates: Record<string, any> = {};
+      
+      for (const field of allowedFields) {
+        if (req.body[field] !== undefined) {
+          updates[field] = req.body[field];
+        }
+      }
+      
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ message: "No valid fields to update" });
+      }
+      
+      // Verify that the search history item belongs to the user
+      const item = await storage.getSearchHistoryItem(itemId);
+      if (!item) {
+        return res.status(404).json({ message: "Search history item not found" });
+      }
+      
+      if (item.userId !== req.user.uid) {
+        return res.status(403).json({ message: "You can only update your own search history" });
+      }
+      
+      const updated = await storage.updateSearchHistoryItem(itemId, updates);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating search history item:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
