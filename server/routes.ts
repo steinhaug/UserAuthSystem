@@ -265,6 +265,106 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Search History endpoints
+  app.post("/api/search/history", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { query, latitude, longitude, resultCount, category, successful } = req.body;
+      
+      const searchData = {
+        userId: req.user.uid,
+        query,
+        latitude,
+        longitude,
+        resultCount,
+        category,
+        successful: successful !== false // Default to true if not explicitly set to false
+      };
+      
+      const history = await storage.saveSearchHistory(searchData);
+      res.status(201).json(history);
+    } catch (error) {
+      console.error("Error saving search history:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/search/history", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      const history = await storage.getUserSearchHistory(req.user.uid, limit);
+      res.json(history);
+    } catch (error) {
+      console.error("Error fetching search history:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/search/suggestions", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const prefix = req.query.prefix as string || '';
+      const suggestions = await storage.getSearchSuggestions(req.user.uid, prefix);
+      res.json(suggestions);
+    } catch (error) {
+      console.error("Error fetching search suggestions:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Search Preferences endpoints
+  app.get("/api/search/preferences", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const preferences = await storage.getUserSearchPreferences(req.user.uid);
+      if (!preferences) {
+        // Create default preferences if none exist
+        const defaultPrefs = {
+          userId: req.user.uid,
+          favoriteCategories: [],
+          favoriteLocations: [],
+          radius: 5
+        };
+        const newPrefs = await storage.createSearchPreferences(defaultPrefs);
+        res.json(newPrefs);
+      } else {
+        res.json(preferences);
+      }
+    } catch (error) {
+      console.error("Error fetching search preferences:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.put("/api/search/preferences", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { favoriteCategories, favoriteLocations, lastLocation, radius } = req.body;
+      
+      // Get existing preferences or create if they don't exist
+      let preferences = await storage.getUserSearchPreferences(req.user.uid);
+      if (!preferences) {
+        const newPrefs = {
+          userId: req.user.uid,
+          favoriteCategories: favoriteCategories || [],
+          favoriteLocations: favoriteLocations || [],
+          lastLocation,
+          radius: radius || 5
+        };
+        preferences = await storage.createSearchPreferences(newPrefs);
+      } else {
+        // Update existing preferences
+        preferences = await storage.updateSearchPreferences(req.user.uid, {
+          favoriteCategories, 
+          favoriteLocations, 
+          lastLocation, 
+          radius
+        });
+      }
+      
+      res.json(preferences);
+    } catch (error) {
+      console.error("Error updating search preferences:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // Mount the OpenAI router - we don't require authentication for these endpoints
   // to allow for guest voice search functionality
   app.use('/api/openai', openaiRouter);

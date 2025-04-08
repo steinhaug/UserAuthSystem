@@ -25,7 +25,13 @@ import {
   type InsertUserChallenge,
   bluetoothDevices,
   type BluetoothDevice,
-  type InsertBluetoothDevice
+  type InsertBluetoothDevice,
+  searchHistory,
+  type SearchHistory,
+  type InsertSearchHistory,
+  searchPreferences,
+  type SearchPreferences,
+  type InsertSearchPreferences
 } from "@shared/schema";
 
 export interface IStorage {
@@ -68,6 +74,14 @@ export interface IStorage {
   // Bluetooth methods
   registerBluetoothDevice(device: InsertBluetoothDevice): Promise<BluetoothDevice>;
   getBluetoothDevicesByUserId(userId: string): Promise<BluetoothDevice[]>;
+  
+  // Search methods
+  saveSearchHistory(searchData: InsertSearchHistory): Promise<SearchHistory>;
+  getUserSearchHistory(userId: string, limit?: number): Promise<SearchHistory[]>;
+  getSearchSuggestions(userId: string, prefix: string): Promise<string[]>;
+  getUserSearchPreferences(userId: string): Promise<SearchPreferences | undefined>;
+  createSearchPreferences(preferences: InsertSearchPreferences): Promise<SearchPreferences>;
+  updateSearchPreferences(userId: string, preferences: Partial<SearchPreferences>): Promise<SearchPreferences | undefined>;
 }
 
 import { db } from "./db";
@@ -410,6 +424,102 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(bluetoothDevices)
       .where(eq(bluetoothDevices.userId, userId));
+  }
+  
+  // Search methods
+  async saveSearchHistory(searchData: InsertSearchHistory): Promise<SearchHistory> {
+    return handleDatabaseOperation(
+      async () => {
+        const [history] = await db
+          .insert(searchHistory)
+          .values(searchData)
+          .returning();
+        return history;
+      },
+      `Failed to save search history for query: ${searchData.query}`,
+      'search-history-creation'
+    );
+  }
+  
+  async getUserSearchHistory(userId: string, limit: number = 10): Promise<SearchHistory[]> {
+    return db
+      .select()
+      .from(searchHistory)
+      .where(eq(searchHistory.userId, userId))
+      .orderBy(searchHistory.timestamp)
+      .limit(limit);
+  }
+  
+  async getSearchSuggestions(userId: string, prefix: string): Promise<string[]> {
+    // Get user's search history
+    const history = await db
+      .select()
+      .from(searchHistory)
+      .where(eq(searchHistory.userId, userId));
+    
+    // Filter history items that start with the prefix
+    const matchingQueries = history
+      .map(item => item.query)
+      .filter(query => query.toLowerCase().startsWith(prefix.toLowerCase()));
+    
+    // Remove duplicates and limit to 5 suggestions
+    return [...new Set(matchingQueries)].slice(0, 5);
+  }
+  
+  async getUserSearchPreferences(userId: string): Promise<SearchPreferences | undefined> {
+    const [preferences] = await db
+      .select()
+      .from(searchPreferences)
+      .where(eq(searchPreferences.userId, userId));
+    
+    return preferences;
+  }
+  
+  async createSearchPreferences(preferences: InsertSearchPreferences): Promise<SearchPreferences> {
+    return handleDatabaseOperation(
+      async () => {
+        // Check if user already has preferences
+        const [existingPrefs] = await db
+          .select()
+          .from(searchPreferences)
+          .where(eq(searchPreferences.userId, preferences.userId));
+        
+        if (existingPrefs) {
+          // Update existing preferences
+          const [updatedPrefs] = await db
+            .update(searchPreferences)
+            .set({ 
+              ...preferences,
+              updatedAt: new Date()
+            })
+            .where(eq(searchPreferences.userId, preferences.userId))
+            .returning();
+          return updatedPrefs;
+        }
+        
+        // Create new preferences
+        const [newPrefs] = await db
+          .insert(searchPreferences)
+          .values(preferences)
+          .returning();
+        return newPrefs;
+      },
+      `Failed to create search preferences for user: ${preferences.userId}`,
+      'search-preferences-creation'
+    );
+  }
+  
+  async updateSearchPreferences(userId: string, preferences: Partial<SearchPreferences>): Promise<SearchPreferences | undefined> {
+    const [updatedPrefs] = await db
+      .update(searchPreferences)
+      .set({ 
+        ...preferences,
+        updatedAt: new Date()
+      })
+      .where(eq(searchPreferences.userId, userId))
+      .returning();
+    
+    return updatedPrefs;
   }
 }
 

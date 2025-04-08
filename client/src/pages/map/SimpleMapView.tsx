@@ -4,6 +4,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { Button } from '@/components/ui/button';
 import { VoiceSearch } from "../../components/map/VoiceSearch";
 import { LocationSearch } from "../../components/map/LocationSearch";
+import { useSearchHistory } from "../../hooks/use-search-history";
 import { 
   MapIcon, SunIcon, MoonIcon, MountainIcon, 
   LayersIcon, MapPinIcon, CrosshairIcon,
@@ -296,6 +297,42 @@ export default function SimpleMapView() {
     });
   };
   
+  // Handle direct location selection from search history
+  const handleDirectLocation = (location: { latitude: string; longitude: string; name: string }) => {
+    if (!map.current) return;
+    
+    // Convert string coordinates to numbers
+    const lat = parseFloat(location.latitude);
+    const lng = parseFloat(location.longitude);
+    
+    if (isNaN(lat) || isNaN(lng)) {
+      console.error("Invalid coordinates:", location);
+      return;
+    }
+    
+    // Clear existing search results
+    setSearchResults([]);
+    
+    // Create a marker for the location
+    const el = document.createElement('div');
+    el.className = 'history-location-marker';
+    el.innerHTML = `<div class="w-8 h-8 rounded-full bg-violet-600 text-white flex items-center justify-center font-bold border-2 border-white shadow-lg">📍</div>`;
+    
+    // Add marker to map
+    new mapboxgl.Marker(el)
+      .setLngLat([lng, lat])
+      .setPopup(new mapboxgl.Popup({ offset: 25 })
+        .setHTML(`<strong>${location.name}</strong>`))
+      .addTo(map.current);
+    
+    // Fly to the location
+    map.current.flyTo({
+      center: [lng, lat],
+      zoom: 15,
+      essential: true
+    });
+  };
+  
   return (
     <div className="pb-16">
       <div className="map-container relative" style={{ height: 'calc(100vh - 6rem)' }}>
@@ -405,7 +442,10 @@ export default function SimpleMapView() {
             <div className="absolute top-4 left-4 z-10 w-full max-w-md px-4">
               <div className="bg-white/90 rounded-lg shadow-lg overflow-hidden">
                 {/* Location search */}
-                <LocationSearch onResultsFound={handleLocationSearch} />
+                <LocationSearch 
+                  onResultsFound={handleLocationSearch}
+                  onDirectLocation={handleDirectLocation}
+                />
                 
                 {/* Voice search button */}
                 <div className="absolute right-8 top-3">

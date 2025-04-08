@@ -242,6 +242,56 @@ export const bluetoothDevicesRelations = relations(bluetoothDevices, ({ one }) =
   }),
 }));
 
+// Search history table
+export const searchHistory = pgTable("search_history", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.firebaseId),
+  query: text("query").notNull(),
+  latitude: text("latitude"),
+  longitude: text("longitude"),
+  resultCount: integer("result_count"),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+  category: text("category"), // e.g., "restaurant", "cafe", etc.
+  successful: boolean("successful").notNull().default(true)
+}, (table) => {
+  return {
+    userIdIdx: index("search_history_user_id_idx").on(table.userId),
+    timestampIdx: index("search_history_timestamp_idx").on(table.timestamp),
+    categoryIdx: index("search_history_category_idx").on(table.category)
+  };
+});
+
+// Define search history relations
+export const searchHistoryRelations = relations(searchHistory, ({ one }) => ({
+  user: one(users, {
+    fields: [searchHistory.userId],
+    references: [users.firebaseId],
+  }),
+}));
+
+// User search preferences table
+export const searchPreferences = pgTable("search_preferences", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.firebaseId).unique(),
+  favoriteCategories: text("favorite_categories").array().notNull().default([]),
+  favoriteLocations: jsonb("favorite_locations").notNull().default([]), 
+  lastLocation: jsonb("last_location"),
+  radius: integer("radius").notNull().default(5), // Default search radius in km
+  updatedAt: timestamp("updated_at").defaultNow()
+}, (table) => {
+  return {
+    userIdIdx: index("search_preferences_user_id_idx").on(table.userId)
+  };
+});
+
+// Define search preferences relations
+export const searchPreferencesRelations = relations(searchPreferences, ({ one }) => ({
+  user: one(users, {
+    fields: [searchPreferences.userId],
+    references: [users.firebaseId],
+  }),
+}));
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -293,6 +343,16 @@ export const insertBluetoothDeviceSchema = createInsertSchema(bluetoothDevices).
   lastSeen: true,
 });
 
+export const insertSearchHistorySchema = createInsertSchema(searchHistory).omit({
+  id: true,
+  timestamp: true,
+});
+
+export const insertSearchPreferencesSchema = createInsertSchema(searchPreferences).omit({
+  id: true,
+  updatedAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -320,3 +380,9 @@ export type UserChallenge = typeof userChallenges.$inferSelect;
 
 export type InsertBluetoothDevice = z.infer<typeof insertBluetoothDeviceSchema>;
 export type BluetoothDevice = typeof bluetoothDevices.$inferSelect;
+
+export type InsertSearchHistory = z.infer<typeof insertSearchHistorySchema>;
+export type SearchHistory = typeof searchHistory.$inferSelect;
+
+export type InsertSearchPreferences = z.infer<typeof insertSearchPreferencesSchema>;
+export type SearchPreferences = typeof searchPreferences.$inferSelect;
