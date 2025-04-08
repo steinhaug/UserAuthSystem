@@ -128,7 +128,7 @@ export default function SimpleMapView() {
     { id: "plogger-1", lat: 0, lng: 0, type: "plogger", active: true, inBluetoothRange: false },
     { id: "plogger-2", lat: 0, lng: 0, type: "plogger", active: true, inBluetoothRange: true },
     { id: "plogger-3", lat: 0, lng: 0, type: "plogger", active: false, inBluetoothRange: false },
-    { id: "plogger-4", lat: 0, lng: 0, type: "plogger", active: true, inBluetoothRange: false }
+    { id: "plogger-4", lat: 0, lng: 0, type: "plogger", active: true, inBluetoothRange: true }
   ]);
   
   // Update map when user location is available
