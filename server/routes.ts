@@ -17,7 +17,7 @@ try {
   // Check if Firebase Admin has already been initialized
   if (!admin.apps || admin.apps.length === 0) {
     admin.initializeApp({
-      projectId: process.env.VITE_FIREBASE_PROJECT_ID
+      projectId: "comemingel"
     });
     console.log("Firebase Admin initialized successfully");
   }

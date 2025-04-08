@@ -1,6 +1,4 @@
-import { initializeApp, getApps } from "firebase/app";
 import { 
-  getAuth, 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
   signOut, 
@@ -8,11 +6,8 @@ import {
   onAuthStateChanged,
   GoogleAuthProvider,
   signInWithPopup
-}
-  
-  from "firebase/auth";
+} from "firebase/auth";
 import { 
-  getFirestore, 
   collection, 
   doc, 
   setDoc, 
@@ -26,42 +21,8 @@ import {
   onSnapshot
 } from "firebase/firestore";
 
-// Firebase configuration with hardcoded values for troubleshooting
-const firebaseConfig = {
-  apiKey: "AIzaSyCthI0fdJzNGxKRqHk2dB1fis3aG23CE-Y",
-  authDomain: "comemingel-app.firebaseapp.com",
-  projectId: "comemingel-app",
-  storageBucket: "comemingel-app.appspot.com",
-  appId: "1:464842065748:web:4a6363ab84c9d2a7df5736"
-};
-
-// Verify Firebase config is valid
-const isValidConfig = 
-  !!firebaseConfig.apiKey && 
-  !!firebaseConfig.projectId && 
-  !!firebaseConfig.appId;
-
-if (!isValidConfig) {
-  console.error('Firebase configuration is invalid:', 
-    JSON.stringify({
-      apiKey: !!firebaseConfig.apiKey,
-      projectId: !!firebaseConfig.projectId,
-      appId: !!firebaseConfig.appId
-    })
-  );
-}
-
-// Initialize Firebase only if it hasn't been initialized already
-let app;
-// Check if Firebase has been initialized
-if (!getApps().length) {
-  app = initializeApp(firebaseConfig);
-} else {
-  app = getApps()[0];
-}
-
-const auth = getAuth(app);
-const db = getFirestore(app);
+// Import Firebase instances from our configuration file
+import { app, auth, db } from './firebaseConfig';
 
 // Auth providers
 const googleProvider = new GoogleAuthProvider();

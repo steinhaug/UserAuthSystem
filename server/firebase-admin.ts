@@ -9,13 +9,12 @@ let auth: any;
 let firestore: any;
 
 try {
-  // Attempt to initialize using environment variables or service account
-  // This will work in production when properly configured
+  // Initialize using the provided project ID
   app = initializeApp({
-    projectId: process.env.VITE_FIREBASE_PROJECT_ID,
+    projectId: "comemingel",
     // If using a service account key file uncomment the following lines
     // credential: cert({
-    //   projectId: process.env.FIREBASE_PROJECT_ID,
+    //   projectId: "comemingel",
     //   clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
     //   privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
     // } as ServiceAccount),
