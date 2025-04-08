@@ -34,15 +34,20 @@ export default function SimpleMapView() {
     );
   }, []);
   
+  // State to track map loading status
+  const [mapInitialized, setMapInitialized] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
+  
   // Initialize map
   useEffect(() => {
     if (!mapContainerRef.current || !mapboxToken) {
       console.error("Can't initialize map - either container is missing or no token is set");
+      setMapError("Missing map container or invalid token");
       return;
     }
     
     try {
-      console.log("Initializing map...");
+      console.log("Initializing map with token:", mapboxToken.substring(0, 5) + "...");
       
       // Create the map instance
       const mapInstance = new mapboxgl.Map({
@@ -63,14 +68,23 @@ export default function SimpleMapView() {
       // Handle map load event
       mapInstance.on('load', () => {
         console.log("Map loaded successfully");
+        setMapInitialized(true);
+        setMapError(null);
       });
       
       // Handle map error event
       mapInstance.on('error', (e) => {
         console.error("Map error:", e.error);
+        setMapError("Error loading map resources");
+        
+        // Try to diagnose token issues
+        if (e.error && (e.error.message || "").includes("access token")) {
+          setMapError("Invalid Mapbox access token");
+        }
       });
     } catch (error) {
       console.error("Error initializing map:", error);
+      setMapError("Could not initialize map");
     }
     
     // Clean up on unmount
@@ -123,13 +137,27 @@ export default function SimpleMapView() {
           {/* Map will be rendered here */}
         </div>
         
-        {/* User's Position Button */}
-        <Button 
-          onClick={handleCenterOnUser}
-          className="absolute bottom-20 right-4 bg-gradient-to-r from-[#FF5252] to-[#FF1744] text-white p-3 rounded-full shadow-lg z-10"
-        >
-          <ChevronDownIcon className="h-6 w-6" />
-        </Button>
+        {/* Error message overlay */}
+        {mapError && (
+          <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center text-white p-4 z-20">
+            <div className="text-xl font-bold mb-2">Map Error</div>
+            <p className="text-center mb-4">{mapError}</p>
+            <p className="text-sm text-center max-w-md">
+              Please verify that you have a valid Mapbox token set in your environment variables.
+              The token should start with "pk." and be at least 80 characters long.
+            </p>
+          </div>
+        )}
+        
+        {/* User's Position Button - only show if map initialized */}
+        {!mapError && (
+          <Button 
+            onClick={handleCenterOnUser}
+            className="absolute bottom-20 right-4 bg-gradient-to-r from-[#FF5252] to-[#FF1744] text-white p-3 rounded-full shadow-lg z-10"
+          >
+            <ChevronDownIcon className="h-6 w-6" />
+          </Button>
+        )}
       </div>
     </div>
   );
