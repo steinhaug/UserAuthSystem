@@ -67,6 +67,7 @@ export interface IStorage {
 
 import { db } from "./db";
 import { eq, or, and } from "drizzle-orm";
+import { handleDatabaseOperation } from "./utils/errorHandler";
 
 export class DatabaseStorage implements IStorage {
   // User methods
@@ -86,8 +87,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(insertUser).returning();
-    return user;
+    return handleDatabaseOperation(
+      async () => {
+        const [user] = await db.insert(users).values(insertUser).returning();
+        return user;
+      },
+      `Failed to create user with username: ${insertUser.username}`,
+      'user-creation'
+    );
   }
 
   async updateUser(firebaseId: string, userData: Partial<User>): Promise<User | undefined> {
@@ -151,11 +158,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createActivity(activity: InsertActivity): Promise<Activity> {
-    const [newActivity] = await db
-      .insert(activities)
-      .values(activity)
-      .returning();
-    return newActivity;
+    return handleDatabaseOperation(
+      async () => {
+        const [newActivity] = await db
+          .insert(activities)
+          .values(activity)
+          .returning();
+        return newActivity;
+      },
+      `Failed to create activity: ${activity.title}`,
+      'activity-creation'
+    );
   }
 
   async joinActivity(activityId: string, userId: string): Promise<ActivityParticipant> {
@@ -193,21 +206,27 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createChatMessage(message: InsertChatMessage): Promise<ChatMessage> {
-    const [newMessage] = await db
-      .insert(chatMessages)
-      .values(message)
-      .returning();
-    
-    // Update the last message ID and updated time in the chat thread
-    await db
-      .update(chatThreads)
-      .set({ 
-        lastMessageId: newMessage.id,
-        updatedAt: new Date()
-      })
-      .where(eq(chatThreads.id, parseInt(message.threadId)));
-    
-    return newMessage;
+    return handleDatabaseOperation(
+      async () => {
+        const [newMessage] = await db
+          .insert(chatMessages)
+          .values(message)
+          .returning();
+        
+        // Update the last message ID and updated time in the chat thread
+        await db
+          .update(chatThreads)
+          .set({ 
+            lastMessageId: newMessage.id,
+            updatedAt: new Date()
+          })
+          .where(eq(chatThreads.id, parseInt(message.threadId)));
+        
+        return newMessage;
+      },
+      `Failed to create chat message in thread: ${message.threadId}`,
+      'message-creation'
+    );
   }
 
   // Challenge methods
@@ -236,59 +255,71 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateChallengeProgress(challengeId: string, userId: string, progress: number): Promise<UserChallenge | undefined> {
-    // Get the challenge to check if the progress meets the target
-    const [challenge] = await db
-      .select()
-      .from(challenges)
-      .where(eq(challenges.id, parseInt(challengeId)));
-    
-    // Determine if the challenge is completed
-    const completed = challenge ? progress >= challenge.target : false;
-    const completedAt = completed ? new Date() : null;
-    
-    // Update the user challenge
-    const [updatedChallenge] = await db
-      .update(userChallenges)
-      .set({ 
-        progress, 
-        completed,
-        completedAt
-      })
-      .where(
-        and(
-          eq(userChallenges.challengeId, parseInt(challengeId)),
-          eq(userChallenges.userId, userId)
-        )
-      )
-      .returning();
-    
-    return updatedChallenge;
+    return handleDatabaseOperation(
+      async () => {
+        // Get the challenge to check if the progress meets the target
+        const [challenge] = await db
+          .select()
+          .from(challenges)
+          .where(eq(challenges.id, parseInt(challengeId)));
+        
+        // Determine if the challenge is completed
+        const completed = challenge ? progress >= challenge.target : false;
+        const completedAt = completed ? new Date() : null;
+        
+        // Update the user challenge
+        const [updatedChallenge] = await db
+          .update(userChallenges)
+          .set({ 
+            progress, 
+            completed,
+            completedAt
+          })
+          .where(
+            and(
+              eq(userChallenges.challengeId, parseInt(challengeId)),
+              eq(userChallenges.userId, userId)
+            )
+          )
+          .returning();
+        
+        return updatedChallenge;
+      },
+      `Failed to update challenge progress for user ${userId} on challenge ${challengeId}`,
+      'challenge-progress'
+    );
   }
 
   // Bluetooth methods
   async registerBluetoothDevice(device: InsertBluetoothDevice): Promise<BluetoothDevice> {
-    // Check if device already exists
-    const [existingDevice] = await db
-      .select()
-      .from(bluetoothDevices)
-      .where(eq(bluetoothDevices.deviceId, device.deviceId));
-    
-    if (existingDevice) {
-      // Update last seen time
-      const [updatedDevice] = await db
-        .update(bluetoothDevices)
-        .set({ lastSeen: new Date() })
-        .where(eq(bluetoothDevices.deviceId, device.deviceId))
-        .returning();
-      return updatedDevice;
-    }
-    
-    // Create new device
-    const [newDevice] = await db
-      .insert(bluetoothDevices)
-      .values(device)
-      .returning();
-    return newDevice;
+    return handleDatabaseOperation(
+      async () => {
+        // Check if device already exists
+        const [existingDevice] = await db
+          .select()
+          .from(bluetoothDevices)
+          .where(eq(bluetoothDevices.deviceId, device.deviceId));
+        
+        if (existingDevice) {
+          // Update last seen time
+          const [updatedDevice] = await db
+            .update(bluetoothDevices)
+            .set({ lastSeen: new Date() })
+            .where(eq(bluetoothDevices.deviceId, device.deviceId))
+            .returning();
+          return updatedDevice;
+        }
+        
+        // Create new device
+        const [newDevice] = await db
+          .insert(bluetoothDevices)
+          .values(device)
+          .returning();
+        return newDevice;
+      },
+      `Failed to register Bluetooth device: ${device.deviceId}`,
+      'bluetooth-device-registration'
+    );
   }
 
   async getBluetoothDevicesByUserId(userId: string): Promise<BluetoothDevice[]> {

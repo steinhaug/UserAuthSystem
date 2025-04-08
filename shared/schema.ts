@@ -16,6 +16,14 @@ export const users = pgTable("users", {
   interests: text("interests").array(),
   createdAt: timestamp("created_at").defaultNow(),
   lastSeen: timestamp("last_seen").defaultNow(),
+}, (table) => {
+  return {
+    firebaseIdIdx: index("users_firebase_id_idx").on(table.firebaseId),
+    usernameIdx: index("users_username_idx").on(table.username),
+    emailIdx: index("users_email_idx").on(table.email),
+    statusIdx: index("users_status_idx").on(table.status),
+    lastSeenIdx: index("users_last_seen_idx").on(table.lastSeen)
+  };
 });
 
 // Define user relations
@@ -37,6 +45,13 @@ export const friends = pgTable("friends", {
   friendId: text("friend_id").notNull().references(() => users.firebaseId),
   status: text("status").notNull(), // pending, accepted, rejected
   createdAt: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    userIdIdx: index("friends_user_id_idx").on(table.userId),
+    friendIdIdx: index("friends_friend_id_idx").on(table.friendId),
+    statusIdx: index("friends_status_idx").on(table.status),
+    userFriendIdx: index("friends_user_friend_idx").on(table.userId, table.friendId)
+  };
 });
 
 // Define friend relations
@@ -67,6 +82,14 @@ export const activities = pgTable("activities", {
   category: text("category").notNull(), // sports, social, food_drinks, games, other
   status: text("status").notNull(), // upcoming, active, completed, cancelled
   createdAt: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    creatorIdIdx: index("activities_creator_id_idx").on(table.creatorId),
+    categoryIdx: index("activities_category_idx").on(table.category),
+    statusIdx: index("activities_status_idx").on(table.status),
+    startTimeIdx: index("activities_start_time_idx").on(table.startTime),
+    locationNameIdx: index("activities_location_name_idx").on(table.locationName)
+  };
 });
 
 // Define activities relations
@@ -84,6 +107,12 @@ export const activityParticipants = pgTable("activity_participants", {
   activityId: integer("activity_id").notNull().references(() => activities.id),
   userId: text("user_id").notNull().references(() => users.firebaseId),
   joinedAt: timestamp("joined_at").defaultNow(),
+}, (table) => {
+  return {
+    activityIdIdx: index("activity_participants_activity_id_idx").on(table.activityId),
+    userIdIdx: index("activity_participants_user_id_idx").on(table.userId),
+    activityUserIdx: index("activity_participants_activity_user_idx").on(table.activityId, table.userId)
+  };
 });
 
 // Define activity participants relations
@@ -120,6 +149,14 @@ export const chatMessages = pgTable("chat_messages", {
   read: boolean("read").default(false),
   type: text("type").default("text"), // text, system, friend_request
   createdAt: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    threadIdIdx: index("chat_messages_thread_id_idx").on(table.threadId),
+    senderIdIdx: index("chat_messages_sender_id_idx").on(table.senderId),
+    receiverIdIdx: index("chat_messages_receiver_id_idx").on(table.receiverId),
+    createdAtIdx: index("chat_messages_created_at_idx").on(table.createdAt),
+    readStatusIdx: index("chat_messages_read_status_idx").on(table.read)
+  };
 });
 
 // Define chat messages relations
