@@ -1,7 +1,7 @@
 // Global constants for the application
 
-// Development mode flag - set to false to enable authentication
-export const DEVELOPMENT_MODE = false;
+// Development mode flag - set to true to bypass authentication
+export const DEVELOPMENT_MODE = true;
 
 // API endpoints
 export const API_ENDPOINTS = {
