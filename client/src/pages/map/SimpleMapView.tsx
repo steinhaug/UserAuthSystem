@@ -125,10 +125,10 @@ export default function SimpleMapView() {
   
   // State to hold active ploggers near user
   const [nearbyPloggers] = useState([
-    { name: "Anna (Plogger)", lat: 0, lng: 0, type: "plogger", active: true },
-    { name: "Markus (Plogger)", lat: 0, lng: 0, type: "plogger", active: true },
-    { name: "Sofia (Plogger)", lat: 0, lng: 0, type: "plogger", active: false },
-    { name: "Lars (Plogger)", lat: 0, lng: 0, type: "plogger", active: true }
+    { id: "plogger-1", lat: 0, lng: 0, type: "plogger", active: true, inBluetoothRange: false },
+    { id: "plogger-2", lat: 0, lng: 0, type: "plogger", active: true, inBluetoothRange: true },
+    { id: "plogger-3", lat: 0, lng: 0, type: "plogger", active: false, inBluetoothRange: false },
+    { id: "plogger-4", lat: 0, lng: 0, type: "plogger", active: true, inBluetoothRange: false }
   ]);
   
   // Update map when user location is available
@@ -163,7 +163,7 @@ export default function SimpleMapView() {
       console.log("Added user marker at:", userLocation.latitude, userLocation.longitude);
       
       // Add simulated nearby ploggers based on user location
-      nearbyPloggers.forEach((plogger: { name: string; lat: number; lng: number; type: string; active: boolean }, index: number) => {
+      nearbyPloggers.forEach((plogger: { id: string; lat: number; lng: number; type: string; active: boolean; inBluetoothRange: boolean }, index: number) => {
         // Simulate locations around the user
         const offset = 0.002 + (index * 0.001);
         const lat = userLocation.latitude + (Math.random() > 0.5 ? offset : -offset);
@@ -186,21 +186,61 @@ export default function SimpleMapView() {
         
         ploggerEl.innerHTML = markerHtml;
         
+        // Create HTML content for popup based on Bluetooth range status
+        let popupHTML = '';
+        
+        if (plogger.inBluetoothRange) {
+          // Within Bluetooth range - show full details
+          const mockNames = ["Anna", "Markus", "Sofia", "Lars", "Johan", "Emma"];
+          const mockName = mockNames[index % mockNames.length];
+          const mockAge = 25 + (index * 2);
+          
+          popupHTML = `
+            <div class="p-3">
+              <div class="flex items-center gap-2 mb-2">
+                <div class="w-12 h-12 rounded-full bg-gray-200 overflow-hidden">
+                  <div class="w-full h-full flex items-center justify-center text-lg font-bold text-gray-500">${mockName.charAt(0)}</div>
+                </div>
+                <div>
+                  <div class="font-medium">${mockName}, ${mockAge}</div>
+                  <div class="text-xs text-blue-600 font-semibold">• Bluetooth-tilkobling</div>
+                </div>
+              </div>
+              <div class="text-sm ${plogger.active ? 'text-green-600' : 'text-gray-500'}">
+                ${plogger.active ? 'Aktiv plogger nå' : 'Inaktiv plogger'}
+              </div>
+              <div class="text-xs text-gray-500 mt-1">Sist aktiv: Idag, 10:45</div>
+              <button class="mt-2 w-full text-xs bg-blue-600 hover:bg-blue-700 text-white py-1 px-2 rounded">
+                Start chat
+              </button>
+            </div>
+          `;
+        } else {
+          // Outside Bluetooth range - anonymous view
+          popupHTML = `
+            <div class="p-3">
+              <div class="flex flex-col items-center mb-2">
+                <div class="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center mb-1">
+                  <span class="text-lg">🗑️</span>
+                </div>
+                <div class="text-center">
+                  <div class="font-medium">Anonym plogger</div>
+                  <div class="text-xs text-gray-400">(utenfor Bluetooth-rekkevidde)</div>
+                </div>
+              </div>
+              <div class="text-sm text-center ${plogger.active ? 'text-green-600' : 'text-gray-500'}">
+                ${plogger.active ? 'Aktiv nå' : 'Inaktiv'}
+              </div>
+              <div class="text-xs text-center text-gray-500 mt-1">Beveg deg nærmere for å se profil</div>
+            </div>
+          `;
+        }
+        
         // Add marker to map
         new mapboxgl.Marker(ploggerEl)
           .setLngLat([lng, lat])
           .setPopup(new mapboxgl.Popup({ offset: 25 })
-            .setHTML(`
-              <div class="p-2">
-                <strong>${plogger.name}</strong>
-                <br>
-                <span class="text-sm ${plogger.active ? 'text-green-600' : 'text-gray-500'}">
-                  ${plogger.active ? 'Aktiv nå' : 'Inaktiv'}
-                </span>
-                <br>
-                <span class="text-xs text-gray-500">Sist aktiv: Idag, 10:45</span>
-              </div>
-            `))
+            .setHTML(popupHTML))
           .addTo(map.current);
       });
       
