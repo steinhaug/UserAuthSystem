@@ -142,10 +142,37 @@ export default function SimpleMapView() {
           <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center text-white p-4 z-20">
             <div className="text-xl font-bold mb-2">Map Error</div>
             <p className="text-center mb-4">{mapError}</p>
-            <p className="text-sm text-center max-w-md">
-              Please verify that you have a valid Mapbox token set in your environment variables.
-              The token should start with "pk." and be at least 80 characters long.
-            </p>
+            <div className="bg-red-900/50 p-4 rounded-lg max-w-md mb-4">
+              <p className="text-sm text-center mb-2">
+                <strong>Invalid Mapbox Token Detected!</strong>
+              </p>
+              <p className="text-sm text-center mb-2">
+                Current token starts with: "{mapboxToken ? mapboxToken.substring(0, 4) + '...' : 'none'}" 
+                and is {mapboxToken ? mapboxToken.length : 0} characters long.
+              </p>
+              <p className="text-sm text-center">
+                A valid Mapbox token should start with "pk." and be approximately 80-90 characters long.
+                Please set a valid token in your environment variables.
+              </p>
+            </div>
+            
+            {userLocation && (
+              <div className="max-w-md text-center mt-2">
+                <p className="mb-2">Your current location:</p>
+                <div className="bg-black/40 p-2 rounded mb-4">
+                  <p>Latitude: {userLocation.latitude.toFixed(6)}</p>
+                  <p>Longitude: {userLocation.longitude.toFixed(6)}</p>
+                </div>
+                <a 
+                  href={`https://www.google.com/maps?q=${userLocation.latitude},${userLocation.longitude}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                >
+                  View on Google Maps
+                </a>
+              </div>
+            )}
           </div>
         )}
         
