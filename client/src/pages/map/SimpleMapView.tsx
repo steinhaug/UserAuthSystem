@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { Button } from '@/components/ui/button';
-import { ChevronDownIcon } from 'lucide-react';
+import { ChevronDownIcon, MapIcon, SunIcon, MoonIcon, MountainIcon, LayersIcon } from 'lucide-react';
 
 // Set Mapbox token globally
 const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
@@ -17,6 +17,7 @@ export default function SimpleMapView() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const [userLocation, setUserLocation] = useState<{ latitude: number, longitude: number } | null>(null);
+  const [mapStyle, setMapStyle] = useState<'streets' | 'satellite' | 'satellite-streets' | 'light' | 'dark'>('streets');
   
   // Get user's location
   useEffect(() => {
@@ -38,6 +39,23 @@ export default function SimpleMapView() {
   const [mapInitialized, setMapInitialized] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   
+  // Function to get the style URL based on the selected style
+  const getMapStyleUrl = (style: 'streets' | 'satellite' | 'satellite-streets' | 'light' | 'dark') => {
+    return style === 'satellite' ? 'mapbox://styles/mapbox/satellite-v9' :
+           style === 'satellite-streets' ? 'mapbox://styles/mapbox/satellite-streets-v12' :
+           style === 'light' ? 'mapbox://styles/mapbox/light-v11' :
+           style === 'dark' ? 'mapbox://styles/mapbox/dark-v11' :
+           'mapbox://styles/mapbox/streets-v12'; // default streets style
+  };
+  
+  // Handle map style change
+  const changeMapStyle = (newStyle: 'streets' | 'satellite' | 'satellite-streets' | 'light' | 'dark') => {
+    setMapStyle(newStyle);
+    if (map.current) {
+      map.current.setStyle(getMapStyleUrl(newStyle));
+    }
+  };
+  
   // Initialize map
   useEffect(() => {
     if (!mapContainerRef.current || !mapboxToken) {
@@ -49,10 +67,13 @@ export default function SimpleMapView() {
     try {
       console.log("Initializing map with token:", mapboxToken.substring(0, 5) + "...");
       
+      // Get the right style based on mapStyle selection
+      const styleUrl = getMapStyleUrl(mapStyle);
+      
       // Create the map instance
       const mapInstance = new mapboxgl.Map({
         container: mapContainerRef.current,
-        style: 'mapbox://styles/mapbox/streets-v12',
+        style: styleUrl,
         center: [10.7522, 59.9139], // Default to Oslo
         zoom: 12,
         accessToken: mapboxToken // Pass token directly as well
@@ -95,6 +116,14 @@ export default function SimpleMapView() {
     };
   }, [mapboxToken]);
   
+  // State to hold active places near user
+  const [nearbyPlaces] = useState([
+    { name: "Coffee Shop", lat: 0, lng: 0, type: "cafe" },
+    { name: "Restaurant", lat: 0, lng: 0, type: "restaurant" },
+    { name: "Park", lat: 0, lng: 0, type: "park" },
+    { name: "Gym", lat: 0, lng: 0, type: "gym" }
+  ]);
+  
   // Update map when user location is available
   useEffect(() => {
     if (!map.current || !userLocation) return;
@@ -107,16 +136,64 @@ export default function SimpleMapView() {
         essential: true
       });
       
+      // Create a pulsing dot effect for user location
+      const el = document.createElement('div');
+      el.className = 'relative';
+      
+      const dot = document.createElement('div');
+      dot.className = 'w-6 h-6 rounded-full bg-primary flex items-center justify-center border-2 border-white shadow-lg';
+      dot.innerHTML = '<div class="w-4 h-4 rounded-full bg-primary animate-ping absolute"></div><div class="w-4 h-4 rounded-full bg-primary"></div>';
+      
+      el.appendChild(dot);
+      
       // Add a marker for user location
-      new mapboxgl.Marker({ color: '#FF0000' })
+      new mapboxgl.Marker(el)
         .setLngLat([userLocation.longitude, userLocation.latitude])
+        .setPopup(new mapboxgl.Popup({ offset: 25 })
+          .setHTML(`<strong>You are here</strong><br>Lat: ${userLocation.latitude.toFixed(4)}<br>Lng: ${userLocation.longitude.toFixed(4)}`))
         .addTo(map.current);
         
       console.log("Added user marker at:", userLocation.latitude, userLocation.longitude);
+      
+      // Add simulated nearby places based on user location
+      nearbyPlaces.forEach((place, index) => {
+        // Simulate locations around the user
+        const offset = 0.002 + (index * 0.001);
+        const lat = userLocation.latitude + (Math.random() > 0.5 ? offset : -offset);
+        const lng = userLocation.longitude + (Math.random() > 0.5 ? offset : -offset);
+        
+        // Create marker element
+        const placeEl = document.createElement('div');
+        placeEl.className = 'place-marker';
+        
+        let markerHtml = '<div class="w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center border-2 border-white shadow-md">';
+        
+        // Different icons for different place types
+        if (place.type === 'cafe') {
+          markerHtml += '<span>☕</span>';
+        } else if (place.type === 'restaurant') {
+          markerHtml += '<span>🍽️</span>';
+        } else if (place.type === 'park') {
+          markerHtml += '<span>🌳</span>';
+        } else if (place.type === 'gym') {
+          markerHtml += '<span>💪</span>';
+        }
+        
+        markerHtml += '</div>';
+        placeEl.innerHTML = markerHtml;
+        
+        // Add marker to map
+        new mapboxgl.Marker(placeEl)
+          .setLngLat([lng, lat])
+          .setPopup(new mapboxgl.Popup({ offset: 25 })
+            .setHTML(`<strong>${place.name}</strong><br>Type: ${place.type}`))
+          .addTo(map.current);
+      });
+      
     } catch (error) {
       console.error("Error updating map with user location:", error);
     }
-  }, [userLocation]);
+  }, [userLocation, nearbyPlaces]);
   
   // Center map on user
   const handleCenterOnUser = () => {
@@ -176,14 +253,72 @@ export default function SimpleMapView() {
           </div>
         )}
         
-        {/* User's Position Button - only show if map initialized */}
+        {/* Map Controls - only show if map initialized */}
         {!mapError && (
-          <Button 
-            onClick={handleCenterOnUser}
-            className="absolute bottom-20 right-4 bg-gradient-to-r from-[#FF5252] to-[#FF1744] text-white p-3 rounded-full shadow-lg z-10"
-          >
-            <ChevronDownIcon className="h-6 w-6" />
-          </Button>
+          <>
+            {/* Map Style Panel */}
+            <div className="absolute top-4 right-4 bg-white/90 rounded-lg shadow-lg p-2 z-10 flex flex-col gap-2">
+              <div className="text-xs font-medium text-gray-700 mb-1 text-center">Map Style</div>
+              <Button
+                variant={mapStyle === 'streets' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => changeMapStyle('streets')}
+                className="h-8 flex items-center gap-1"
+                title="Streets View"
+              >
+                <MapIcon className="h-4 w-4" />
+                <span className="text-xs">Streets</span>
+              </Button>
+              <Button
+                variant={mapStyle === 'satellite' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => changeMapStyle('satellite')}
+                className="h-8 flex items-center gap-1"
+                title="Satellite View"
+              >
+                <MountainIcon className="h-4 w-4" />
+                <span className="text-xs">Satellite</span>
+              </Button>
+              <Button
+                variant={mapStyle === 'satellite-streets' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => changeMapStyle('satellite-streets')}
+                className="h-8 flex items-center gap-1"
+                title="Satellite with Streets"
+              >
+                <LayersIcon className="h-4 w-4" />
+                <span className="text-xs">Hybrid</span>
+              </Button>
+              <Button
+                variant={mapStyle === 'light' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => changeMapStyle('light')}
+                className="h-8 flex items-center gap-1"
+                title="Light Mode"
+              >
+                <SunIcon className="h-4 w-4" />
+                <span className="text-xs">Light</span>
+              </Button>
+              <Button
+                variant={mapStyle === 'dark' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => changeMapStyle('dark')}
+                className="h-8 flex items-center gap-1"
+                title="Dark Mode"
+              >
+                <MoonIcon className="h-4 w-4" />
+                <span className="text-xs">Dark</span>
+              </Button>
+            </div>
+            
+            {/* User's Position Button */}
+            <Button 
+              onClick={handleCenterOnUser}
+              className="absolute bottom-20 right-4 bg-gradient-to-r from-[#FF5252] to-[#FF1744] text-white p-3 rounded-full shadow-lg z-10"
+            >
+              <ChevronDownIcon className="h-6 w-6" />
+            </Button>
+          </>
         )}
       </div>
     </div>
