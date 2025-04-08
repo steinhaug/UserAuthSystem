@@ -24,12 +24,12 @@ import {
   Tag
 } from 'lucide-react';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
-import { db, logoutUser, updateUserProfile } from '@/lib/firebase';
+import { db, updateUserProfile } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 
 export default function ProfileView() {
   const [, setLocation] = useLocation();
-  const { currentUser, userProfile } = useAuth();
+  const { currentUser, userProfile, logout } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [interests, setInterests] = useState<string>('');
@@ -55,7 +55,7 @@ export default function ProfileView() {
 
   const handleLogout = async () => {
     try {
-      await logoutUser();
+      await logout();
       setLocation('/login');
     } catch (error: any) {
       toast({
