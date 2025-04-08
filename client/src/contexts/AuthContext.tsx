@@ -40,10 +40,15 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setCurrentUser(null);
       setUserProfile(null);
       localStorage.setItem('devModeLoggedIn', 'false');
+      
+      // Redirect to login page after logout
+      window.location.href = '/login';
       return;
     } else {
       // In normal mode, use Firebase logout
-      return firebaseLogout();
+      await firebaseLogout();
+      window.location.href = '/login';
+      return;
     }
   };
 
@@ -57,9 +62,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   useEffect(() => {
     if (DEVELOPMENT_MODE) {
-      // Always set the development mode login to true by default
-      localStorage.setItem('devModeLoggedIn', 'true');
-
+      // Check if we should auto-login in development mode
+      // Don't automatically set devModeLoggedIn to true, let the login form handle this
+      
       if (shouldLoadDevUser()) {
         // In development mode, create a mock user
         console.log("🔧 Using development mode with mock user");

@@ -51,12 +51,15 @@ export default function Login() {
         console.log('Using development mode for login - setting mock user');
         // In development mode, just set the localStorage flag to enable the mock user
         localStorage.setItem('devModeLoggedIn', 'true');
+        
+        // Force a reload after login to ensure AuthContext reads the new localStorage value
+        window.location.href = '/map';
+        
         toast({
           title: 'Development mode login',
           description: 'Logged in with mock user',
           variant: 'default',
         });
-        setLocation('/map');
         return;
       }
       
@@ -114,12 +117,15 @@ export default function Login() {
         console.log('Using development mode for Google login - setting mock user');
         // In development mode, just set the localStorage flag to enable the mock user
         localStorage.setItem('devModeLoggedIn', 'true');
+        
+        // Force a reload after login to ensure AuthContext reads the new localStorage value
+        window.location.href = '/map';
+        
         toast({
           title: 'Development mode login',
           description: 'Logged in with mock user via Google',
           variant: 'default',
         });
-        setLocation('/map');
         return;
       }
       
