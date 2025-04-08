@@ -89,8 +89,15 @@ export function VoiceSearch({ onSearch, isSearching }: VoiceSearchProps) {
       
       if (data.text) {
         console.log('Transcribed text:', data.text);
-        // Pass to parent component for search
-        onSearch(data.text);
+        
+        // Check if this is a fallback message
+        if (data.fallback) {
+          setError(data.text);
+          setTimeout(() => setError(null), 5000); // Clear error after 5 seconds
+        } else {
+          // Pass to parent component for search
+          onSearch(data.text);
+        }
       } else {
         setError('Could not understand audio. Please try speaking clearly.');
       }
