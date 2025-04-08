@@ -1,7 +1,7 @@
 // Global constants for the application
 
-// Development mode flag - set to false to use real authentication
-export const DEVELOPMENT_MODE = false;
+// Development mode flag - set to true to use mock authentication (until API key issue is fixed)
+export const DEVELOPMENT_MODE = true;
 
 // API endpoints
 export const API_ENDPOINTS = {

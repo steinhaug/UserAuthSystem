@@ -21,8 +21,13 @@ export default function Auth() {
   // If still loading or already authenticated, don't render the form
   if (isLoading || isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100">
         <div className="w-16 h-16 border-t-4 border-primary rounded-full animate-spin"></div>
+        {DEVELOPMENT_MODE && (
+          <p className="mt-4 text-gray-700 font-medium">
+            Using development mode with mock authentication
+          </p>
+        )}
       </div>
     );
   }
