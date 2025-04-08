@@ -1,6 +1,6 @@
 {
-  "variant": "professional",
-  "primary": "hsl(0, 100%, 65%)",
+  "variant": "tint",
+  "primary": "oklch(70% 0.1 50)",
   "appearance": "light",
-  "radius": 0.5
+  "radius": 0
 }
