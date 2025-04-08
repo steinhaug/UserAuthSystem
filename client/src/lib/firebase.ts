@@ -32,8 +32,25 @@ const firebaseConfig = {
   authDomain: `${import.meta.env.VITE_FIREBASE_PROJECT_ID}.firebaseapp.com`,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
   storageBucket: `${import.meta.env.VITE_FIREBASE_PROJECT_ID}.appspot.com`,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || undefined
 };
+
+// Verify Firebase config is valid
+const isValidConfig = 
+  !!firebaseConfig.apiKey && 
+  !!firebaseConfig.projectId && 
+  !!firebaseConfig.appId;
+
+if (!isValidConfig) {
+  console.error('Firebase configuration is invalid:', 
+    JSON.stringify({
+      apiKey: !!firebaseConfig.apiKey,
+      projectId: !!firebaseConfig.projectId,
+      appId: !!firebaseConfig.appId
+    })
+  );
+}
 
 // Initialize Firebase only if it hasn't been initialized already
 let app;

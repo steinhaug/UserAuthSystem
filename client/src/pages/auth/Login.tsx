@@ -33,17 +33,25 @@ export default function Login() {
   const onSubmit = async (data: LoginFormValues) => {
     setIsLoading(true);
     try {
+      console.log('Attempting login with email:', data.email);
       await loginWithEmail(data.email, data.password);
+      toast({
+        title: 'Login successful',
+        description: 'Welcome back!',
+        variant: 'default',
+      });
       setLocation('/map');
     } catch (error: any) {
       console.error("Login error:", error);
+      console.error("Error code:", error.code);
+      console.error("Error message:", error.message);
       
       let errorMessage = 'Please check your credentials and try again';
       
       // Firebase error codes: https://firebase.google.com/docs/auth/admin/errors
       if (error.code === 'auth/invalid-api-key') {
         errorMessage = 'Firebase API key is invalid. Please contact the administrator.';
-      } else if (error.code === 'auth/invalid-credential') {
+      } else if (error.code === 'auth/invalid-credential' || error.code === 'auth/invalid-email') {
         errorMessage = 'Invalid email or password. Please try again.';
       } else if (error.code === 'auth/user-not-found') {
         errorMessage = 'No account found with this email. Please sign up.';
@@ -51,6 +59,10 @@ export default function Login() {
         errorMessage = 'Incorrect password. Please try again.';
       } else if (error.code === 'auth/network-request-failed') {
         errorMessage = 'Network error. Please check your connection.';
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMessage = 'Too many failed attempts. Please try again later or reset your password.';
+      } else if (error.code === 'auth/app-deleted' || error.code === 'auth/app-not-authorized') {
+        errorMessage = 'Authentication service is not configured properly. Please contact support.';
       } else if (error.message) {
         errorMessage = error.message;
       }
@@ -68,10 +80,18 @@ export default function Login() {
   const handleGoogleLogin = async () => {
     setIsLoading(true);
     try {
+      console.log('Attempting login with Google');
       await loginWithGoogle();
+      toast({
+        title: 'Login successful',
+        description: 'Welcome back!',
+        variant: 'default',
+      });
       setLocation('/map');
     } catch (error: any) {
       console.error("Google login error:", error);
+      console.error("Error code:", error.code);
+      console.error("Error message:", error.message);
       
       let errorMessage = 'Could not sign in with Google';
       
@@ -83,6 +103,12 @@ export default function Login() {
         errorMessage = 'Login popup was blocked. Please allow popups for this site.';
       } else if (error.code === 'auth/network-request-failed') {
         errorMessage = 'Network error. Please check your connection.';
+      } else if (error.code === 'auth/unauthorized-domain') {
+        errorMessage = 'This domain is not authorized for OAuth operations. Please contact the administrator.';
+      } else if (error.code === 'auth/operation-not-allowed') {
+        errorMessage = 'Google login is not enabled for this project. Please contact the administrator.';
+      } else if (error.code === 'auth/app-deleted' || error.code === 'auth/app-not-authorized') {
+        errorMessage = 'Authentication service is not configured properly. Please contact support.';
       } else if (error.message) {
         errorMessage = error.message;
       }

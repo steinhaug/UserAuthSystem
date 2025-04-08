@@ -3,7 +3,7 @@ import { useLocation } from 'wouter';
 import Login from './Login';
 import Signup from './Signup';
 import { useAuth } from '@/contexts/AuthContext';
-import { app } from '@/lib/firebase';
+import { app as firebaseApp } from '@/lib/firebase';
 import { DEVELOPMENT_MODE } from '@/lib/constants';
 
 export default function Auth() {
@@ -28,13 +28,13 @@ export default function Auth() {
   }
 
   // Check if Firebase is properly configured
-  const isFirebaseConfigured = app && 
+  const isFirebaseConfigured = firebaseApp && 
     import.meta.env.VITE_FIREBASE_API_KEY && 
     import.meta.env.VITE_FIREBASE_PROJECT_ID && 
     import.meta.env.VITE_FIREBASE_APP_ID;
 
   // If Firebase is not configured, show an error message
-  if (!isFirebaseConfigured) {
+  if (!firebaseApp || !isFirebaseConfigured) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
         <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
