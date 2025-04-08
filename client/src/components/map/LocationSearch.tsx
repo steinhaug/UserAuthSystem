@@ -35,15 +35,20 @@ export function LocationSearch({ onResultsFound, onDirectLocation }: LocationSea
     // Get search suggestions when search text changes
     if (searchText.trim().length > 1) {
       const fetchSuggestions = async () => {
-        const fetchedSuggestions = await getSuggestions(searchText.trim());
-        setSuggestions(fetchedSuggestions);
+        try {
+          const fetchedSuggestions = await getSuggestions(searchText.trim());
+          setSuggestions(fetchedSuggestions);
+        } catch (error) {
+          console.error('Failed to fetch suggestions:', error);
+          setSuggestions([]);
+        }
       };
       
       fetchSuggestions();
     } else {
       setSuggestions([]);
     }
-  }, [searchText, getSuggestions]);
+  }, [searchText]);
   
   // Handle search submission
   const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {

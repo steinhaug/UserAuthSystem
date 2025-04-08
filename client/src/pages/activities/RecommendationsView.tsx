@@ -94,15 +94,26 @@ export default function RecommendationsView() {
         <div className="bg-red-50 p-4 rounded-lg border border-red-200 mb-4">
           <h3 className="text-red-800 font-medium">Could not load recommendations</h3>
           <p className="text-red-600 text-sm mt-1">
-            There was a problem loading your personalized recommendations. Please try again later.
+            {error instanceof Error && error.message.includes('permission-denied') 
+              ? "You don't have permission to access this feature. Please make sure you're logged in."
+              : "There was a problem loading your personalized recommendations. Please try again later."}
           </p>
-          <Button 
-            onClick={() => refetch()} 
-            variant="outline" 
-            className="mt-3 border-red-200 text-red-700 hover:bg-red-50"
-          >
-            Try Again
-          </Button>
+          <div className="flex space-x-2 mt-3">
+            <Button 
+              onClick={() => refetch()} 
+              variant="outline" 
+              className="border-red-200 text-red-700 hover:bg-red-50"
+            >
+              Try Again
+            </Button>
+            
+            <Button 
+              onClick={() => setLocation('/map')} 
+              variant="ghost"
+            >
+              Go to Map
+            </Button>
+          </div>
         </div>
       </div>
     );

@@ -7,14 +7,31 @@ export function useActivityRecommendations() {
   return useQuery({
     queryKey: ['/api/recommendations'],
     queryFn: async () => {
-      const response = await fetch('/api/recommendations');
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch recommendations');
+      try {
+        const response = await fetch('/api/recommendations');
+        
+        if (!response.ok) {
+          // Check if the error is due to permission issues
+          const errorText = await response.text();
+          if (errorText.includes('permission-denied') || response.status === 403) {
+            throw new Error('permission-denied: You do not have access to this resource');
+          }
+          throw new Error(`Failed to fetch recommendations: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        return data.recommendations as ActivityRecommendation[];
+      } catch (error) {
+        console.error("Error in activity recommendations query:", error);
+        throw error;
       }
-      
-      const data = await response.json();
-      return data.recommendations as ActivityRecommendation[];
+    },
+    retry: (failureCount, error) => {
+      // Don't retry on permission errors
+      if (error instanceof Error && error.message.includes('permission-denied')) {
+        return false;
+      }
+      return failureCount < 3;
     }
   });
 }
