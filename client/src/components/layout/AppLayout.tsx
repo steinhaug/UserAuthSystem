@@ -9,14 +9,14 @@ interface AppLayoutProps {
 
 export default function AppLayout({ children }: AppLayoutProps) {
   const [location, setLocation] = useLocation();
-  const { currentUser, isLoading } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
 
   useEffect(() => {
     // Redirect to auth page if not authenticated
-    if (!currentUser && !isLoading) {
+    if (!isAuthenticated && !isLoading) {
       setLocation('/');
     }
-  }, [currentUser, isLoading, setLocation]);
+  }, [isAuthenticated, isLoading, setLocation]);
 
   // Show loading indicator while checking auth
   if (isLoading) {
@@ -29,7 +29,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   // If not authenticated and not loading, don't render anything 
   // (redirection will happen in useEffect)
-  if (!currentUser && !isLoading) {
+  if (!isAuthenticated && !isLoading) {
     return null;
   }
 
