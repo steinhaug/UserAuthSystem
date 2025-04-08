@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
+import { DEVELOPMENT_MODE } from '@/lib/constants';
 import { FaGoogle, FaFacebook, FaApple } from 'react-icons/fa';
 
 const loginSchema = z.object({
@@ -34,6 +35,22 @@ export default function Login() {
     setIsLoading(true);
     try {
       console.log('Attempting login with email:', data.email);
+      
+      // Check if we're in development mode
+      if (DEVELOPMENT_MODE) {
+        console.log('Using development mode for login - setting mock user');
+        // In development mode, just set the localStorage flag to enable the mock user
+        localStorage.setItem('devModeLoggedIn', 'true');
+        toast({
+          title: 'Development mode login',
+          description: 'Logged in with mock user',
+          variant: 'default',
+        });
+        setLocation('/map');
+        return;
+      }
+      
+      // Normal Firebase login
       await loginWithEmail(data.email, data.password);
       toast({
         title: 'Login successful',
@@ -81,6 +98,22 @@ export default function Login() {
     setIsLoading(true);
     try {
       console.log('Attempting login with Google');
+      
+      // Check if we're in development mode
+      if (DEVELOPMENT_MODE) {
+        console.log('Using development mode for Google login - setting mock user');
+        // In development mode, just set the localStorage flag to enable the mock user
+        localStorage.setItem('devModeLoggedIn', 'true');
+        toast({
+          title: 'Development mode login',
+          description: 'Logged in with mock user via Google',
+          variant: 'default',
+        });
+        setLocation('/map');
+        return;
+      }
+      
+      // Normal Google login
       await loginWithGoogle();
       toast({
         title: 'Login successful',
