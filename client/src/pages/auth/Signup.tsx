@@ -48,9 +48,28 @@ export default function Signup() {
       // Redirect to map view
       setLocation('/map');
     } catch (error: any) {
+      console.error("Signup error:", error);
+      
+      let errorMessage = 'There was an error creating your account';
+      
+      // Handle specific Firebase error codes for better user feedback
+      if (error.code === 'auth/invalid-api-key') {
+        errorMessage = 'Firebase API key is invalid. Please contact the administrator.';
+      } else if (error.code === 'auth/email-already-in-use') {
+        errorMessage = 'Email is already in use. Please try logging in.';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = 'Invalid email format. Please check your email address.';
+      } else if (error.code === 'auth/weak-password') {
+        errorMessage = 'Password is too weak. Please use a stronger password.';
+      } else if (error.code === 'auth/network-request-failed') {
+        errorMessage = 'Network error. Please check your connection.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       toast({
         title: 'Signup failed',
-        description: error.message || 'There was an error creating your account',
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {

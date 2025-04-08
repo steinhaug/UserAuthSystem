@@ -36,9 +36,28 @@ export default function Login() {
       await loginWithEmail(data.email, data.password);
       setLocation('/map');
     } catch (error: any) {
+      console.error("Login error:", error);
+      
+      let errorMessage = 'Please check your credentials and try again';
+      
+      // Firebase error codes: https://firebase.google.com/docs/auth/admin/errors
+      if (error.code === 'auth/invalid-api-key') {
+        errorMessage = 'Firebase API key is invalid. Please contact the administrator.';
+      } else if (error.code === 'auth/invalid-credential') {
+        errorMessage = 'Invalid email or password. Please try again.';
+      } else if (error.code === 'auth/user-not-found') {
+        errorMessage = 'No account found with this email. Please sign up.';
+      } else if (error.code === 'auth/wrong-password') {
+        errorMessage = 'Incorrect password. Please try again.';
+      } else if (error.code === 'auth/network-request-failed') {
+        errorMessage = 'Network error. Please check your connection.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       toast({
         title: 'Login failed',
-        description: error.message || 'Please check your credentials and try again',
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {
@@ -52,9 +71,25 @@ export default function Login() {
       await loginWithGoogle();
       setLocation('/map');
     } catch (error: any) {
+      console.error("Google login error:", error);
+      
+      let errorMessage = 'Could not sign in with Google';
+      
+      if (error.code === 'auth/invalid-api-key') {
+        errorMessage = 'Firebase API key is invalid. Please contact the administrator.';
+      } else if (error.code === 'auth/popup-closed-by-user') {
+        errorMessage = 'Login popup was closed. Please try again.';
+      } else if (error.code === 'auth/popup-blocked') {
+        errorMessage = 'Login popup was blocked. Please allow popups for this site.';
+      } else if (error.code === 'auth/network-request-failed') {
+        errorMessage = 'Network error. Please check your connection.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       toast({
         title: 'Google login failed',
-        description: error.message || 'Could not sign in with Google',
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {

@@ -3,6 +3,7 @@ import { useLocation } from 'wouter';
 import Login from './Login';
 import Signup from './Signup';
 import { useAuth } from '@/contexts/AuthContext';
+import { app } from '@/lib/firebase';
 
 export default function Auth() {
   const [activeTab, setActiveTab] = useState<'login' | 'signup'>('login');
@@ -21,6 +22,46 @@ export default function Auth() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
         <div className="w-16 h-16 border-t-4 border-primary rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  // Check if Firebase is properly configured
+  const isFirebaseConfigured = app && 
+    import.meta.env.VITE_FIREBASE_API_KEY && 
+    import.meta.env.VITE_FIREBASE_PROJECT_ID && 
+    import.meta.env.VITE_FIREBASE_APP_ID;
+
+  // If Firebase is not configured, show an error message
+  if (!isFirebaseConfigured) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
+        <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
+          <div className="text-center mb-6">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-red-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <h2 className="text-2xl font-bold text-gray-900 mt-4">Firebase Configuration Error</h2>
+          </div>
+          <p className="text-gray-700 mb-4">
+            The Firebase credentials are missing or invalid. Please check the following:
+          </p>
+          <ul className="list-disc list-inside mb-6 space-y-2 text-gray-700">
+            <li className={import.meta.env.VITE_FIREBASE_API_KEY ? "text-green-600" : "text-red-600"}>
+              {import.meta.env.VITE_FIREBASE_API_KEY ? "✓" : "✗"} Firebase API Key
+            </li>
+            <li className={import.meta.env.VITE_FIREBASE_PROJECT_ID ? "text-green-600" : "text-red-600"}>
+              {import.meta.env.VITE_FIREBASE_PROJECT_ID ? "✓" : "✗"} Firebase Project ID
+            </li>
+            <li className={import.meta.env.VITE_FIREBASE_APP_ID ? "text-green-600" : "text-red-600"}>
+              {import.meta.env.VITE_FIREBASE_APP_ID ? "✓" : "✗"} Firebase App ID
+            </li>
+          </ul>
+          <p className="text-sm text-gray-600 mb-4">
+            Please ensure all Firebase credentials are correctly set in your environment variables. 
+            These can be found in your Firebase console under Project Settings.
+          </p>
+        </div>
       </div>
     );
   }
