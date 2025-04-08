@@ -57,10 +57,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   useEffect(() => {
     if (DEVELOPMENT_MODE) {
-      // Initialize localStorage for dev mode if needed
-      if (localStorage.getItem('devModeLoggedIn') === null) {
-        localStorage.setItem('devModeLoggedIn', 'true');
-      }
+      // Always set the development mode login to true by default
+      localStorage.setItem('devModeLoggedIn', 'true');
 
       if (shouldLoadDevUser()) {
         // In development mode, create a mock user
