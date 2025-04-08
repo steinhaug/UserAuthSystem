@@ -4,6 +4,7 @@ import Login from './Login';
 import Signup from './Signup';
 import { useAuth } from '@/contexts/AuthContext';
 import { app } from '@/lib/firebase';
+import { DEVELOPMENT_MODE } from '@/lib/constants';
 
 export default function Auth() {
   const [activeTab, setActiveTab] = useState<'login' | 'signup'>('login');

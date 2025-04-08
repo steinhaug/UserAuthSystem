@@ -1,7 +1,9 @@
 // User-related types
 export interface User {
   id: string;
+  firebaseId: string; // Firebase user ID used for authentication
   displayName: string;
+  username: string; // Unique username for the user
   email: string;
   photoURL: string;
   status: 'online' | 'busy' | 'offline';
