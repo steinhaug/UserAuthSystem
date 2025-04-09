@@ -40,12 +40,12 @@ const Welcome: React.FC = () => {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-primary">
+    <div className="flex items-center justify-center min-h-screen bg-white">
       <motion.div 
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ duration: 0.5, ease: "easeOut" }}
-        className="w-full max-w-md p-8 mx-4 bg-white/80 backdrop-blur-lg rounded-3xl shadow-xl
+        className="w-full max-w-md p-8 mx-4 bg-white shadow-xl rounded-2xl
                  transform transition duration-300 hover:-translate-y-1 hover:scale-105"
       >
         <div className="flex flex-col items-center">
