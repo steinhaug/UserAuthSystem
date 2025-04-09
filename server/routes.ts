@@ -15,8 +15,8 @@ import { upload, getFileUrl, generateThumbnail } from "./upload";
 
 // Initialize Firebase Admin SDK
 try {
-  if (!admin.apps || admin.apps.length === 0) {
-    admin.initializeApp({
+  if (firebaseAdmin.apps && firebaseAdmin.apps.length === 0) {
+    firebaseAdmin.initializeApp({
       projectId: "comemingel"
     });
     console.log("Firebase Admin initialized successfully");
