@@ -45,7 +45,8 @@ const Welcome: React.FC = () => {
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ duration: 0.5, ease: "easeOut" }}
-        className="w-full max-w-md p-8 mx-4 bg-white rounded-3xl shadow-xl"
+        className="w-full max-w-md p-8 mx-4 bg-white/80 backdrop-blur-lg rounded-3xl shadow-xl
+                 transform transition duration-300 hover:-translate-y-1 hover:scale-105"
       >
         <div className="flex flex-col items-center">
           {/* Logo */}
@@ -75,7 +76,7 @@ const Welcome: React.FC = () => {
             initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 0.6, duration: 0.5 }}
-            className="w-full p-6 bg-gray-50 rounded-xl shadow-sm"
+            className="w-full p-6 bg-slate-50/90 rounded-xl shadow-sm"
           >
             <h2 className="mb-2 text-3xl font-bold text-center text-slate-800">
               Welcome to ComeMingel
@@ -85,7 +86,7 @@ const Welcome: React.FC = () => {
             </p>
             <Button 
               onClick={handleGetStarted}
-              className="w-full py-6 text-lg bg-gradient-to-r from-red-400 to-pink-500 hover:from-red-500 hover:to-pink-600"
+              className="w-full py-4 text-lg font-bold bg-red-500 hover:bg-red-600 rounded-full shadow-md transform transition-all duration-200 hover:shadow-lg"
             >
               Get Started
             </Button>
