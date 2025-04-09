@@ -1,111 +1,207 @@
-import { useCallback } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { SearchHistory, InsertSearchHistory } from "@shared/schema";
+import { useState, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useToast } from '@/hooks/use-toast';
+import { queryClient } from '@/lib/queryClient';
+import { InsertSearchHistory, SearchHistory } from '@shared/schema';
 
-export function useSearchHistory(limit: number = 10) {
-  return useQuery({
-    queryKey: ['/api/search/history'],
-    queryFn: async () => {
-      const response = await apiRequest(`/api/search/history?limit=${limit}`);
-      return response.json();
-    },
-    staleTime: 1000 * 60, // 1 minute
-    retry: 1,
-  });
+import { apiRequest } from '@/lib/queryClient';
+
+// Define response types for better type checking
+interface SuggestionsResponse {
+  suggestions: string[];
 }
 
-export function useSaveSearchHistory() {
+interface SearchHistoryResponse {
+  searchHistory: SearchHistory;
+}
+
+interface HistoryResponse {
+  history: SearchHistory[];
+}
+
+interface HistoryItemResponse {
+  history: SearchHistory;
+}
+
+export type SearchSuggestion = string;
+
+// Hook for getting search suggestions based on query
+export const useSearchSuggestions = (query: string = "") => {
+  return useQuery({
+    queryKey: ['/api/search/suggestions', query],
+    queryFn: async () => {
+      if (!query || query.length < 2) {
+        return [] as SearchSuggestion[];
+      }
+      const data = await apiRequest(`/api/search/suggestions?q=${encodeURIComponent(query)}`);
+      return (data as unknown as SuggestionsResponse).suggestions || [];
+    },
+    enabled: query.length >= 2 // Only fetch if user has typed at least 2 characters
+  });
+};
+
+// Hook for getting nearby search suggestions
+export const useNearbySearchSuggestions = () => {
+  return useQuery({
+    queryKey: ['/api/search/nearby'],
+    queryFn: async () => {
+      const data = await apiRequest('/api/search/nearby');
+      return (data as unknown as SuggestionsResponse).suggestions || [];
+    }
+  });
+};
+
+// Hook for saving search history
+export const useSaveSearchHistory = () => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
   return useMutation({
-    mutationFn: async (data: Partial<InsertSearchHistory>) => {
-      const response = await apiRequest("/api/search/history", {
-        method: "POST",
-        data: data,
+    mutationFn: async (searchData: Omit<InsertSearchHistory, 'userId'>) => {
+      const data = await apiRequest('/api/search/save', {
+        method: 'POST',
+        data: searchData
       });
-      return response.json();
+      return (data as unknown as SearchHistoryResponse).searchHistory;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/search/history'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/search/suggestions'] });
     },
-  });
-}
-
-export function useUpdateSearchHistory() {
-  return useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<SearchHistory> }) => {
-      const response = await apiRequest(`/api/search/history/${id}`, {
-        method: "PATCH",
-        data,
+    onError: (error) => {
+      toast({
+        title: 'Error',
+        description: `Failed to save search: ${error.message}`,
+        variant: 'destructive'
       });
-      return response.json();
+    }
+  });
+};
+
+export const useSearchHistory = (limit: number = 10) => {
+  const { toast } = useToast();
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Fetch search history
+  const {
+    data: history,
+    isLoading: isLoadingHistory,
+    error: historyError
+  } = useQuery({
+    queryKey: ['/api/search/history', limit],
+    queryFn: async () => {
+      const res = await makeApiRequest(`/api/search/history?limit=${limit}`);
+      const jsonData = res;
+      return jsonData.history as SearchHistory[];
+    }
+  });
+
+  // Fetch search suggestions based on input
+  const {
+    data: suggestions,
+    isLoading: isLoadingSuggestions,
+    error: suggestionsError,
+    refetch: refetchSuggestions
+  } = useQuery({
+    queryKey: ['/api/search/suggestions', searchQuery],
+    queryFn: async () => {
+      if (!searchQuery || searchQuery.length < 2) {
+        return [] as SearchSuggestion[];
+      }
+      const res = await makeApiRequest(`/api/search/suggestions?q=${encodeURIComponent(searchQuery)}`);
+      const jsonData = res;
+      return jsonData.suggestions as SearchSuggestion[];
+    },
+    enabled: searchQuery.length >= 2 // Only fetch if user has typed at least 2 characters
+  });
+
+  // Mutation to save a search to history
+  const saveSearchMutation = useMutation({
+    mutationFn: async (searchData: Omit<InsertSearchHistory, 'userId'>) => {
+      const res = await makeApiRequest('/api/search/save', {
+        method: 'POST',
+        data: searchData
+      });
+      const jsonData = res;
+      return jsonData.searchHistory as SearchHistory;
+    },
+    onSuccess: () => {
+      // Invalidate the search history query to refetch
+      queryClient.invalidateQueries({ queryKey: ['/api/search/history'] });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Error',
+        description: `Failed to save search: ${error.message}`,
+        variant: 'destructive'
+      });
+    }
+  });
+
+  // Mutation to update a search history item (e.g., mark as favorite)
+  const updateSearchHistoryMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number, data: Partial<SearchHistory> }) => {
+      const res = await makeApiRequest(`/api/search/history/${id}`, {
+        method: 'PATCH',
+        data: data
+      });
+      const jsonData = res;
+      return jsonData.history as SearchHistory;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/search/history'] });
     },
-  });
-}
-
-export function useSearchSuggestions(prefix: string = '') {
-  return useQuery({
-    queryKey: ['/api/search/suggestions', prefix],
-    queryFn: async () => {
-      if (!prefix || prefix.length < 2) return [];
-      
-      const response = await apiRequest(`/api/search/suggestions?prefix=${encodeURIComponent(prefix)}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch search suggestions');
-      }
-      return response.json();
-    },
-    staleTime: 1000 * 60 * 5, // 5 minutes
-    enabled: prefix.length >= 2,
-  });
-}
-
-export function useNearbySearchSuggestions() {
-  return useQuery({
-    queryKey: ['/api/search/near-me'],
-    queryFn: async () => {
-      try {
-        const response = await apiRequest('/api/search/near-me');
-        if (!response.ok) {
-          console.error("Error fetching nearby suggestions:", response.statusText);
-          return [];
-        }
-        return response.json();
-      } catch (error) {
-        console.error("Error fetching nearby suggestions:", error);
-        return [];
-      }
-    },
-    staleTime: 1000 * 60 * 10, // 10 minutes
-    retry: 1,
-  });
-}
-
-export function useSearchPreferences() {
-  return useQuery({
-    queryKey: ['/api/search/preferences'],
-    queryFn: async () => {
-      const response = await apiRequest('/api/search/preferences');
-      return response.json();
-    },
-    staleTime: 1000 * 60 * 15, // 15 minutes
-  });
-}
-
-export function useUpdateSearchPreferences() {
-  return useMutation({
-    mutationFn: async (data: Partial<SearchHistory>) => {
-      const response = await apiRequest('/api/search/preferences', {
-        method: 'PUT',
-        data,
+    onError: (error) => {
+      toast({
+        title: 'Error',
+        description: `Failed to update search history: ${error.message}`,
+        variant: 'destructive'
       });
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/search/preferences'] });
-    },
+    }
   });
-}
+
+  // Handle search input change
+  const handleSearchInputChange = useCallback((value: string) => {
+    setSearchQuery(value);
+  }, []);
+
+  // Handle performing a search
+  const performSearch = useCallback(async (query: string, searchType: string = 'text_search') => {
+    try {
+      await saveSearchMutation.mutateAsync({
+        query,
+        type: searchType,
+        successful: true
+      });
+
+      // Here you would also likely want to trigger the actual search functionality
+      // For example, navigate to search results page or filter data
+
+      return true;
+    } catch {
+      return false;
+    }
+  }, [saveSearchMutation]);
+
+  // Toggle favorite status for a search
+  const toggleFavorite = useCallback((searchItem: SearchHistory) => {
+    updateSearchHistoryMutation.mutate({
+      id: searchItem.id,
+      data: { favorite: !searchItem.favorite }
+    });
+  }, [updateSearchHistoryMutation]);
+
+  return {
+    history: history || [],
+    suggestions: suggestions || [],
+    isLoadingHistory,
+    isLoadingSuggestions,
+    historyError,
+    suggestionsError,
+    performSearch,
+    handleSearchInputChange,
+    toggleFavorite,
+    searchQuery,
+    saveSearchMutation,
+    updateSearchHistoryMutation
+  };
+};

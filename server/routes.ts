@@ -7,7 +7,10 @@ import { createHash, timingSafeEqual } from "crypto";
 import multer from "multer";
 import path from "path";
 import fetch from "node-fetch";
-import { User, Activity, InsertActivity, ActivityParticipant } from "@shared/schema";
+import { 
+  User, Activity, InsertActivity, ActivityParticipant,
+  insertSearchHistorySchema, insertSearchPreferencesSchema 
+} from "@shared/schema";
 import { storage } from "./storage";
 import { log as serverLog } from "./vite";
 import { upload, getFileUrl, generateThumbnail } from "./upload";
@@ -212,6 +215,212 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const updatedRecommendation = await storage.updateActivityRecommendationStatus(id, status);
       return res.json({ recommendation: updatedRecommendation });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+  
+  // Search history endpoints
+  app.get('/api/search/history', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      const history = await storage.getUserSearchHistory(req.user.uid, limit);
+      return res.json({ history });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+
+  app.post('/api/search/save', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const searchData = req.body;
+      
+      // Make sure user ID is set correctly
+      const searchDataWithUser = {
+        ...searchData,
+        userId: req.user.uid
+      };
+      
+      try {
+        insertSearchHistorySchema.parse(searchDataWithUser);
+      } catch (validationError) {
+        log(`Invalid search data: ${JSON.stringify(validationError)}`, 'error');
+        return sendErrorResponse(
+          res,
+          "Invalid search data",
+          "400",
+          ApiErrorCode.VALIDATION_ERROR,
+          validationError
+        );
+      }
+      
+      const searchHistory = await storage.saveSearchHistory(searchDataWithUser);
+      return res.status(201).json({ searchHistory });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+
+  app.get('/api/search/suggestions', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const prefix = req.query.q as string || '';
+      if (!prefix) {
+        return res.json({ suggestions: [] });
+      }
+      
+      const suggestions = await storage.getSearchSuggestions(req.user.uid, prefix);
+      return res.json({ suggestions });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+  
+  // Get nearby search suggestions based on user location and popular searches
+  app.get('/api/search/nearby', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const userId = req.user.uid;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 6;
+      
+      // These would normally come from database based on location
+      // For now using hardcoded suggestions relevant to Norwegian users
+      const suggestions = [
+        "Plogging i Frognerparken",
+        "Joggegruppe Majorstuen",
+        "Kajakk ved Bygdøy",
+        "Yoga i Slottsparken",
+        "Fotballtrening Voldsløkka",
+        "Fjelltur Holmenkollen"
+      ].slice(0, limit);
+      
+      return res.json({ suggestions });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+
+  app.get('/api/search/preferences', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const preferences = await storage.getUserSearchPreferences(req.user.uid);
+      return res.json({ preferences: preferences || {} });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+
+  app.post('/api/search/preferences', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const userPreferences = req.body;
+      
+      // Check if user already has preferences
+      const existingPreferences = await storage.getUserSearchPreferences(req.user.uid);
+      
+      let preferences;
+      if (existingPreferences) {
+        // Update existing preferences
+        preferences = await storage.updateSearchPreferences(req.user.uid, userPreferences);
+      } else {
+        // Create new preferences
+        try {
+          insertSearchPreferencesSchema.parse({
+            ...userPreferences,
+            userId: req.user.uid
+          });
+        } catch (validationError) {
+          log(`Invalid search preferences: ${JSON.stringify(validationError)}`, 'error');
+          return sendErrorResponse(
+            res,
+            "Invalid search preferences data",
+            "400",
+            ApiErrorCode.VALIDATION_ERROR,
+            validationError
+          );
+        }
+        
+        preferences = await storage.createSearchPreferences({
+          ...userPreferences,
+          userId: req.user.uid
+        });
+      }
+      
+      return res.json({ preferences });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+
+  // Near-me search endpoint
+  app.get('/api/search/near-me', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const latitude = req.query.lat ? parseFloat(req.query.lat as string) : null;
+      const longitude = req.query.lng ? parseFloat(req.query.lng as string) : null;
+      const radius = req.query.radius ? parseInt(req.query.radius as string) : 5;
+      
+      if (!latitude || !longitude) {
+        return sendErrorResponse(
+          res,
+          "Missing location coordinates",
+          "400", 
+          ApiErrorCode.VALIDATION_ERROR
+        );
+      }
+      
+      // Update user's last location in search preferences
+      const userPrefs = await storage.getUserSearchPreferences(req.user.uid);
+      if (userPrefs) {
+        await storage.updateSearchPreferences(req.user.uid, {
+          lastLocation: { latitude, longitude }
+        });
+      }
+      
+      // Save search to history
+      await storage.saveSearchHistory({
+        userId: req.user.uid,
+        query: "nearby",
+        latitude: latitude.toString(),
+        longitude: longitude.toString(),
+        type: "map_search",
+        successful: true
+      });
+      
+      // For now just return empty response - in a future implementation
+      // this would actually search for nearby users or activities
+      return res.json({ 
+        results: [],
+        location: { latitude, longitude },
+        radius
+      });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+  
+  app.patch('/api/search/history/:id', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updateData = req.body;
+      
+      // Ensure user can only update their own search history
+      const historyItem = await storage.getSearchHistoryItem(id);
+      if (!historyItem) {
+        return sendErrorResponse(
+          res, 
+          "Search history item not found", 
+          "404", 
+          ApiErrorCode.NOT_FOUND
+        );
+      }
+      
+      if (historyItem.userId !== req.user.uid) {
+        return sendErrorResponse(
+          res,
+          "You don't have permission to update this search history item",
+          "403",
+          ApiErrorCode.FORBIDDEN
+        );
+      }
+      
+      const updatedHistory = await storage.updateSearchHistoryItem(id, updateData);
+      return res.json({ history: updatedHistory });
     } catch (error) {
       return handleApiDatabaseError(res, error);
     }

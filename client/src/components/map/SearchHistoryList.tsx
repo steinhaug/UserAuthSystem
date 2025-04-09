@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { nb } from "date-fns/locale";
-import { useSearchHistory, useUpdateSearchHistory } from "@/hooks/use-search-history";
+import { useSearchHistory } from "@/hooks/use-search-history";
 import type { SearchHistory } from "@shared/schema";
 
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
@@ -32,12 +32,17 @@ export function SearchHistoryList({
   className,
   limit = 10 
 }: SearchHistoryListProps) {
-  const { data, isLoading, error } = useSearchHistory(limit);
-  const updateMutation = useUpdateSearchHistory();
+  const { 
+    history, 
+    isLoadingHistory, 
+    historyError, 
+    updateSearchHistoryMutation,
+    toggleFavorite: toggleFavoriteInHistory
+  } = useSearchHistory(limit);
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
 
   const toggleFavorite = (id: number, currentValue: boolean) => {
-    updateMutation.mutate({
+    updateSearchHistoryMutation.mutate({
       id,
       data: { favorite: !currentValue }
     });
@@ -61,7 +66,7 @@ export function SearchHistoryList({
     }
   };
 
-  if (isLoading) {
+  if (isLoadingHistory) {
     return (
       <div className={cn("space-y-3", className)}>
         {[...Array(3)].map((_, i) => (
@@ -79,7 +84,7 @@ export function SearchHistoryList({
     );
   }
 
-  if (error) {
+  if (historyError) {
     return (
       <Card className={cn("", className)}>
         <CardContent className="p-4 text-center">
@@ -94,7 +99,7 @@ export function SearchHistoryList({
     );
   }
 
-  if (!data || data.length === 0) {
+  if (!history || history.length === 0) {
     return (
       <Card className={cn("", className)}>
         <CardContent className="p-4 text-center">
@@ -111,7 +116,7 @@ export function SearchHistoryList({
 
   return (
     <div className={cn("space-y-3", className)}>
-      {data.map((item: SearchHistory) => (
+      {history.map((item: SearchHistory) => (
         <Card 
           key={item.id} 
           className={cn(

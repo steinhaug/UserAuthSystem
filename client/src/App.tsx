@@ -21,6 +21,7 @@ import FriendsView from "@/pages/friends/FriendsView";
 import ChallengesView from "@/pages/challenges/ChallengesView";
 import ProfileView from "@/pages/profile/ProfileView";
 import ChatConversation from "@/pages/chat/ChatConversation";
+import SearchPage from "@/pages/search";
 
 function App() {
   return (
@@ -135,6 +136,14 @@ function App() {
                 {() => (
                   <AppLayout>
                     <ProfileView />
+                  </AppLayout>
+                )}
+              </Route>
+              
+              <Route path="/search">
+                {() => (
+                  <AppLayout>
+                    <SearchPage />
                   </AppLayout>
                 )}
               </Route>
