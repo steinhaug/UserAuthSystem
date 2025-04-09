@@ -3,9 +3,12 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { ActivityRecommendation } from "@shared/schema";
 import { DEVELOPMENT_MODE } from "@/lib/constants";
 
-// Hook for fetching activity recommendations
+/**
+ * Hook for fetching activity recommendations
+ * @returns {UseQueryResult<ActivityRecommendation[]>} Query result with recommendations array
+ */
 export function useActivityRecommendations() {
-  return useQuery({
+  return useQuery<any, Error, ActivityRecommendation[]>({
     queryKey: ['/api/recommendations'],
     queryFn: async ({ queryKey }) => {
       try {
@@ -30,11 +33,24 @@ export function useActivityRecommendations() {
         }
 
         const data = await response.json();
-        return data.recommendations as ActivityRecommendation[];
+        console.log("Received data from API:", data);
+        return data;
       } catch (error) {
         console.error("Error in activity recommendations query:", error);
         throw error;
       }
+    },
+    select: (data) => {
+      // Ensure we extract the recommendations array properly
+      console.log("Processing data in select:", data);
+      if (data && Array.isArray(data.recommendations)) {
+        return data.recommendations;
+      } else if (Array.isArray(data)) {
+        return data;
+      }
+      // Return empty array if the data is not in expected format
+      console.warn("Recommendations data is not in expected format:", data);
+      return [];
     },
     retry: (failureCount, error) => {
       // Don't retry on permission errors

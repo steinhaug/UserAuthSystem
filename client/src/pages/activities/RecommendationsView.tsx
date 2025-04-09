@@ -13,6 +13,7 @@ export default function RecommendationsView() {
   
   // Hent anbefalinger via React Query
   const { data: recommendationsData, isLoading, isError, error } = useActivityRecommendations();
+  console.log("Recommendations data:", recommendationsData);
   
   // State for activities data
   const [activitiesMap, setActivitiesMap] = useState<Record<string | number, any>>({});
@@ -29,7 +30,10 @@ export default function RecommendationsView() {
       setIsLoadingActivities(true);
       
       try {
-        const activityIds = [...new Set(recommendationsData.map(rec => rec.activityId))];
+        // Simply use a regular array with filter to get unique IDs
+        const activityIds = recommendationsData
+          .map(rec => rec.activityId)
+          .filter((id, index, self) => self.indexOf(id) === index);
         const activitiesObj: Record<string | number, any> = {};
         
         // Hent hver aktivitet
