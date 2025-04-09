@@ -90,6 +90,7 @@ export default function SimpleMapView() {
       map.current = mapInstance;
       
       // Legg til navigasjonskontroller - mindre størrelse med bare zoom-knapper
+      // Vi bruker 'right' for å vise kontrollene på høyre side
       const navControl = new mapboxgl.NavigationControl({ 
         showCompass: false, // Vi viser bare zoom-knappene
         visualizePitch: false 

@@ -13,24 +13,53 @@
 }
 
 /* Custom mapbox controls styling */
+/* Vi setter veldig diskret stil for navigasjonskontrollene */
+.mapboxgl-ctrl-group {
+  margin: 0 !important;
+  background: rgba(255, 255, 255, 0.7) !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2) !important;
+  border-radius: 20px !important; /* Mer rund form */
+  border: none !important;
+  overflow: hidden !important;
+}
+
+/* Gjør zoom-knappene mye mindre */
 .mapboxgl-ctrl-zoom-in,
 .mapboxgl-ctrl-zoom-out {
-  width: 24px !important;
-  height: 24px !important;
-  line-height: 24px !important;
+  width: 20px !important;
+  height: 20px !important;
+  line-height: 20px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  background: transparent !important;
 }
 
-.mapboxgl-ctrl-group {
-  position: absolute !important;
-  bottom: 50px !important;
-  right: 10px !important;
-}
-
-.mapboxgl-ctrl-group button {
-  width: 24px !important;
-  height: 24px !important;
-}
-
+/* Gjør pluss og minus ikonene mindre */
 .mapboxgl-ctrl-icon {
-  transform: scale(0.8);
+  transform: scale(0.6) !important;
+  margin: 0 !important;
+}
+
+/* Plasserer kontrollen i høyre hjørne */
+.mapboxgl-ctrl-bottom-right {
+  right: 5px !important;
+  bottom: 80px !important;
+}
+
+/* Gjør knappene mindre */
+.mapboxgl-ctrl-group button {
+  width: 20px !important;
+  height: 20px !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+/* Fjern border mellom knappene */
+.mapboxgl-ctrl-group > button {
+  border: none !important;
+}
+
+/* Endre fargen på knappene for bedre synlighet */
+.mapboxgl-ctrl-group > button:hover {
+  background-color: rgba(0, 0, 0, 0.05) !important;
 }
