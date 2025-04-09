@@ -11,3 +11,26 @@
     @apply font-sans antialiased bg-background text-foreground;
   }
 }
+
+/* Custom mapbox controls styling */
+.mapboxgl-ctrl-zoom-in,
+.mapboxgl-ctrl-zoom-out {
+  width: 24px !important;
+  height: 24px !important;
+  line-height: 24px !important;
+}
+
+.mapboxgl-ctrl-group {
+  position: absolute !important;
+  bottom: 50px !important;
+  right: 10px !important;
+}
+
+.mapboxgl-ctrl-group button {
+  width: 24px !important;
+  height: 24px !important;
+}
+
+.mapboxgl-ctrl-icon {
+  transform: scale(0.8);
+}
