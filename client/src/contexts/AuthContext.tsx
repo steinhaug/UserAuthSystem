@@ -125,17 +125,22 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     if (!DEVELOPMENT_MODE) return false;
     const devLoggedIn = localStorage.getItem('devModeLoggedIn');
     console.log("Development mode login status:", devLoggedIn);
-    return devLoggedIn === 'true';
+    
+    // Treat null (uninitialized) or 'true' as logged in for smoother experience in development mode
+    return devLoggedIn === 'true' || devLoggedIn === null;
   };
 
   useEffect(() => {
     if (DEVELOPMENT_MODE) {
       // Check if we should auto-login in development mode
-      // Don't automatically set devModeLoggedIn to true, let the login form handle this
+      // Allow auto-login with null/undefined localStorage for better dev experience
       
       if (shouldLoadDevUser()) {
         // In development mode, create a mock user
         console.log("🔧 Using development mode with mock user");
+        
+        // Set localStorage to true for consistent state
+        localStorage.setItem('devModeLoggedIn', 'true');
         
         // Create a fake user for development
         const mockUser = {
@@ -165,7 +170,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         setIsLoading(false);
         return;
       } else {
-        // Not logged in for dev mode
+        // User explicitly logged out in dev mode
+        console.log("Development mode: not logged in");
         setCurrentUser(null);
         setUserProfile(null);
         setIsLoading(false);

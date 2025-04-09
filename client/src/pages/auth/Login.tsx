@@ -52,14 +52,19 @@ export default function Login() {
         // In development mode, just set the localStorage flag to enable the mock user
         localStorage.setItem('devModeLoggedIn', 'true');
         
-        // Force a reload after login to ensure AuthContext reads the new localStorage value
-        window.location.href = '/map';
-        
+        // Show toast first
         toast({
           title: 'Development mode login',
           description: 'Logged in with mock user',
           variant: 'default',
         });
+        
+        // Short delay to ensure localStorage is set before navigation
+        setTimeout(() => {
+          // Force a reload after login to ensure AuthContext reads the new localStorage value
+          window.location.href = '/map';
+        }, 100);
+        
         return;
       }
       
@@ -118,14 +123,19 @@ export default function Login() {
         // In development mode, just set the localStorage flag to enable the mock user
         localStorage.setItem('devModeLoggedIn', 'true');
         
-        // Force a reload after login to ensure AuthContext reads the new localStorage value
-        window.location.href = '/map';
-        
+        // Show toast first
         toast({
           title: 'Development mode login',
           description: 'Logged in with mock user via Google',
           variant: 'default',
         });
+        
+        // Short delay to ensure localStorage is set before navigation
+        setTimeout(() => {
+          // Force a reload after login to ensure AuthContext reads the new localStorage value
+          window.location.href = '/map';
+        }, 100);
+        
         return;
       }
       
