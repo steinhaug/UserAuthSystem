@@ -154,7 +154,11 @@ export const chatMessages = pgTable("chat_messages", {
   receiverId: text("receiver_id").notNull().references(() => users.firebaseId),
   content: text("content").notNull(),
   read: boolean("read").default(false),
-  type: text("type").default("text"), // text, system, friend_request
+  type: text("type").default("text"), // text, system, friend_request, image, video, audio
+  mediaURL: text("media_url"), // URL to the media file (if type is image, video, or audio)
+  mediaThumbnailURL: text("media_thumbnail_url"), // Thumbnail URL for image/video
+  mediaDuration: integer("media_duration"), // Duration in seconds for audio/video
+  mediaSize: integer("media_size"), // Size in bytes
   status: text("status").default("sent"), // sent, delivered, pending, failed
   readAt: timestamp("read_at"),
   deliveredAt: timestamp("delivered_at"),
@@ -167,7 +171,8 @@ export const chatMessages = pgTable("chat_messages", {
     receiverIdIdx: index("chat_messages_receiver_id_idx").on(table.receiverId),
     createdAtIdx: index("chat_messages_created_at_idx").on(table.createdAt),
     readStatusIdx: index("chat_messages_read_status_idx").on(table.read),
-    messageStatusIdx: index("chat_messages_status_idx").on(table.status)
+    messageStatusIdx: index("chat_messages_status_idx").on(table.status),
+    messageTypeIdx: index("chat_messages_type_idx").on(table.type)
   };
 });
 

@@ -11,7 +11,10 @@ import {
 } from "./utils/apiErrorHandler";
 import { log } from "./vite";
 import { WebSocketServer, WebSocket } from 'ws';
+import path from 'path';
 import openaiRouter from './openai';
+import { upload, getFileUrl, generateThumbnail, getFileType } from './upload';
+import fs from 'fs';
 
 // Initialize Firebase Admin
 try {
@@ -27,6 +30,14 @@ try {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Serve uploaded files
+  app.use('/uploads', (req, res, next) => {
+    const filepath = path.join(__dirname, '..', req.path);
+    if (fs.existsSync(filepath) && fs.statSync(filepath).isFile()) {
+      return res.sendFile(filepath);
+    }
+    next();
+  });
   // Authentication middleware with extended Request type
   interface AuthenticatedRequest extends Request {
     user: {
@@ -479,6 +490,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Mount the OpenAI router - we don't require authentication for these endpoints
   // to allow for guest voice search functionality
   app.use('/api/openai', openaiRouter);
+  
+  // Chat media upload endpoints
+  app.post('/api/chat/media/upload', authenticateUser, upload.single('media'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'No file uploaded' 
+        });
+      }
+
+      // Get the uploaded file details
+      const file = req.file;
+      
+      // Determine media type from mimetype
+      let mediaType: 'image' | 'video' | 'audio';
+      if (file.mimetype.startsWith('image/')) {
+        mediaType = 'image';
+      } else if (file.mimetype.startsWith('video/')) {
+        mediaType = 'video';
+      } else if (file.mimetype.startsWith('audio/')) {
+        mediaType = 'audio';
+      } else {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Unsupported file type' 
+        });
+      }
+
+      // Generate file URL
+      const fileUrl = getFileUrl(req, file);
+      
+      // Generate thumbnail for images and videos (if applicable)
+      const thumbnailPath = await generateThumbnail(file);
+      let thumbnailUrl = null;
+      if (thumbnailPath) {
+        thumbnailUrl = fileUrl.replace(path.basename(fileUrl), path.basename(thumbnailPath));
+      }
+
+      // Return the media information
+      res.status(200).json({
+        success: true,
+        mediaType,
+        mediaURL: fileUrl,
+        mediaThumbnailURL: thumbnailUrl,
+        mediaSize: file.size,
+        filename: file.originalname,
+        mimeType: file.mimetype
+      });
+    } catch (error) {
+      console.error('Error uploading media:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: 'Error uploading media' 
+      });
+    }
+  });
 
   // Activity Recommendations API endpoints
   app.get("/api/recommendations", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
@@ -849,6 +917,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     lastActivity: number;
     authenticated: boolean;
     subscriptions: string[]; // Topics/channels the client is subscribed to
+    publicKey?: string; // For encrypted communication
   }>();
   
   // Set up ping interval to keep connections alive
@@ -885,7 +954,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       userId: 'unknown',
       lastActivity: Date.now(),
       authenticated: false,
-      subscriptions: []
+      subscriptions: [],
+      publicKey: undefined
     });
     
     // Handle pong messages to keep track of active connections
@@ -922,7 +992,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               clients.set(ws, { 
                 ...clientInfo!,
                 userId,
-                authenticated: true 
+                authenticated: true,
+                publicKey: clientInfo?.publicKey
               });
               
               // Send authentication confirmation
@@ -1040,6 +1111,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           if (data.recipientId && data.threadId && data.content) {
             try {
+              // Check if message is encrypted 
+              const isEncrypted = data.isEncrypted === true;
+              
               // Create a message object
               const messageData = {
                 threadId: data.threadId,
@@ -1047,31 +1121,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 content: data.content,
                 receiverId: data.recipientId,
                 status: "sent",
-                read: false
+                read: false,
+                isEncrypted
               };
               
-              // Store the message in the database
-              const message = await storage.createChatMessage(messageData);
+              // Generate a unique message ID without storing in database
+              const messageId = `${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+              const timestamp = Date.now();
+              
+              // Create ephemeral message object
+              const ephemeralMessage = {
+                id: messageId,
+                threadId: data.threadId,
+                senderId: clientInfo.userId,
+                content: data.content,
+                receiverId: data.recipientId,
+                status: "sent",
+                read: false,
+                isEncrypted,
+                createdAt: timestamp,
+                type: 'text'
+              };
               
               // Send confirmation to the sender
               ws.send(JSON.stringify({
                 type: 'message_sent',
                 success: true,
-                messageId: message.id,
-                timestamp: Date.now()
+                messageId,
+                timestamp
               }));
               
               // Send the message to the recipient if they're online
               const delivered = sendToUser(data.recipientId, {
                 type: 'new_message',
-                message,
-                timestamp: Date.now()
+                message: ephemeralMessage,
+                timestamp
               });
-              
-              // If not delivered, mark as pending
-              if (!delivered) {
-                await storage.markMessageAsPending(message.id.toString());
-              }
             } catch (error) {
               console.error('Error sending chat message:', error);
               ws.send(JSON.stringify({
@@ -1117,6 +1202,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             } catch (error) {
               console.error('Error marking message as read:', error);
+            }
+          }
+        }
+        
+        // Handle public key sharing for encryption
+        else if (data.type === 'share_public_key') {
+          if (!clientInfo || !clientInfo.authenticated) {
+            ws.send(JSON.stringify({
+              type: 'error',
+              code: 'NOT_AUTHENTICATED',
+              message: 'Authentication required'
+            }));
+            return;
+          }
+          
+          if (data.publicKey) {
+            try {
+              // Store the public key in memory
+              const clientInfo = clients.get(ws);
+              if (clientInfo) {
+                clientInfo.publicKey = data.publicKey;
+                clients.set(ws, clientInfo);
+              }
+              
+              // Acknowledge receipt of the public key
+              ws.send(JSON.stringify({
+                type: 'public_key_received',
+                success: true,
+                timestamp: Date.now()
+              }));
+              
+              console.log(`Public key received from user ${clientInfo ? clientInfo.userId : 'unknown'}`);
+            } catch (error) {
+              console.error('Error storing public key:', error);
+              ws.send(JSON.stringify({
+                type: 'public_key_received',
+                success: false,
+                error: 'Failed to store public key'
+              }));
+            }
+          }
+        }
+        
+        // Handle public key request
+        else if (data.type === 'request_public_key') {
+          if (!clientInfo || !clientInfo.authenticated) {
+            ws.send(JSON.stringify({
+              type: 'error',
+              code: 'NOT_AUTHENTICATED',
+              message: 'Authentication required'
+            }));
+            return;
+          }
+          
+          if (data.recipientId) {
+            try {
+              // Find recipient's connection and get their public key
+              let recipientPublicKey = null;
+              
+              // Convert Map entries to array to avoid TypeScript iteration issues
+              const clientsArray = Array.from(clients.entries());
+              for (const [client, info] of clientsArray) {
+                if (info.userId === data.recipientId) {
+                  recipientPublicKey = info.publicKey || null;
+                  break;
+                }
+              }
+              
+              if (recipientPublicKey) {
+                // Send the recipient's public key to the requester
+                ws.send(JSON.stringify({
+                  type: 'public_key',
+                  userId: data.recipientId,
+                  publicKey: recipientPublicKey,
+                  timestamp: Date.now()
+                }));
+              } else {
+                // Recipient not found or doesn't have a public key
+                ws.send(JSON.stringify({
+                  type: 'public_key',
+                  userId: data.recipientId,
+                  publicKey: null,
+                  error: 'Public key not available',
+                  timestamp: Date.now()
+                }));
+              }
+            } catch (error) {
+              console.error('Error processing public key request:', error);
+              ws.send(JSON.stringify({
+                type: 'public_key',
+                userId: data.recipientId,
+                publicKey: null,
+                error: 'Internal server error',
+                timestamp: Date.now()
+              }));
             }
           }
         }
@@ -1172,7 +1352,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Function to send a message to a specific user
   // Returns true if message was delivered, false otherwise
   function sendToUser(userId: string, data: any): boolean {
-    for (const [client, info] of clients.entries()) {
+    // Convert Map entries to array to avoid TypeScript iteration issues
+    const clientsArray = Array.from(clients.entries());
+    for (const [client, info] of clientsArray) {
       if (info.userId === userId && client.readyState === WebSocket.OPEN) {
         try {
           client.send(JSON.stringify(data));
@@ -1190,7 +1372,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   function broadcastToNearbyUsers(senderId: string, data: any) {
     // In a real implementation, this would filter users by distance
     // For now, we'll just broadcast to all authenticated users except the sender
-    for (const [client, info] of clients.entries()) {
+    // Convert Map entries to array to avoid TypeScript iteration issues
+    const clientsArray = Array.from(clients.entries());
+    for (const [client, info] of clientsArray) {
       if (info.userId !== 'unknown' && info.userId !== senderId && client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify(data));
       }

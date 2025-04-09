@@ -61,7 +61,12 @@ export interface ChatMessage {
   content: string;
   read: boolean;
   createdAt: number;
-  type: 'text' | 'system' | 'friend_request';
+  type: 'text' | 'system' | 'friend_request' | 'image' | 'video' | 'audio';
+  mediaURL?: string; // URL to media file for image/video/audio messages
+  mediaThumbnailURL?: string; // Thumbnail URL for image/video messages
+  mediaDuration?: number; // Duration in seconds for audio/video
+  mediaSize?: number; // Size in bytes
+  status?: 'sent' | 'delivered' | 'read' | 'pending' | 'failed';
 }
 
 export interface ChatThread {

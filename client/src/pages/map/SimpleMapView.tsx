@@ -243,11 +243,13 @@ export default function SimpleMapView() {
         }
         
         // Add marker to map
-        new mapboxgl.Marker(ploggerEl)
-          .setLngLat([lng, lat])
-          .setPopup(new mapboxgl.Popup({ offset: 25 })
-            .setHTML(popupHTML))
-          .addTo(map.current);
+        if (map.current) {
+          new mapboxgl.Marker(ploggerEl)
+            .setLngLat([lng, lat])
+            .setPopup(new mapboxgl.Popup({ offset: 25 })
+              .setHTML(popupHTML))
+            .addTo(map.current);
+        }
       });
       
     } catch (error) {
@@ -288,11 +290,13 @@ export default function SimpleMapView() {
         el.innerHTML = `<div class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold border-2 border-white shadow-lg">${index + 1}</div>`;
         
         // Add marker to map
-        new mapboxgl.Marker(el)
-          .setLngLat(result.coordinates)
-          .setPopup(new mapboxgl.Popup({ offset: 25 })
-            .setHTML(`<strong>${result.name}</strong>${result.address ? `<br>${result.address}` : ''}${result.description ? `<br><span class="text-xs">${result.description}</span>` : ''}`))
-          .addTo(map.current);
+        if (map.current) {
+          new mapboxgl.Marker(el)
+            .setLngLat(result.coordinates)
+            .setPopup(new mapboxgl.Popup({ offset: 25 })
+              .setHTML(`<strong>${result.name}</strong>${result.address ? `<br>${result.address}` : ''}${result.description ? `<br><span class="text-xs">${result.description}</span>` : ''}`))
+            .addTo(map.current);
+        }
       });
       
       // Fit map to show all results
@@ -302,10 +306,12 @@ export default function SimpleMapView() {
       });
       
       // Add padding
-      map.current.fitBounds(bounds, {
-        padding: 100,
-        maxZoom: 15
-      });
+      if (map.current) {
+        map.current.fitBounds(bounds, {
+          padding: 100,
+          maxZoom: 15
+        });
+      }
     }
   };
   
@@ -372,18 +378,22 @@ export default function SimpleMapView() {
     el.innerHTML = `<div class="w-8 h-8 rounded-full bg-violet-600 text-white flex items-center justify-center font-bold border-2 border-white shadow-lg">📍</div>`;
     
     // Add marker to map
-    new mapboxgl.Marker(el)
-      .setLngLat([lng, lat])
-      .setPopup(new mapboxgl.Popup({ offset: 25 })
-        .setHTML(`<strong>${location.name}</strong>`))
-      .addTo(map.current);
+    if (map.current) {
+      new mapboxgl.Marker(el)
+        .setLngLat([lng, lat])
+        .setPopup(new mapboxgl.Popup({ offset: 25 })
+          .setHTML(`<strong>${location.name}</strong>`))
+        .addTo(map.current);
+    }
     
     // Fly to the location
-    map.current.flyTo({
-      center: [lng, lat],
-      zoom: 15,
-      essential: true
-    });
+    if (map.current) {
+      map.current.flyTo({
+        center: [lng, lat],
+        zoom: 15,
+        essential: true
+      });
+    }
   };
   
   return (
