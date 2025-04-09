@@ -26,25 +26,32 @@ export async function apiRequest(
     ...(options.headers || {})
   };
   
+  console.log(`API Request to ${url} with development mode: ${DEVELOPMENT_MODE}`);
+  
   // Use either direct body or stringify data
   const body = options.body || (options.data ? JSON.stringify(options.data) : undefined);
   
-  const res = await fetch(url, {
-    method,
-    headers,
-    body,
-    credentials: "include",
-  });
+  try {
+    const res = await fetch(url, {
+      method,
+      headers,
+      body,
+      credentials: "include",
+    });
 
-  await throwIfResNotOk(res);
-  
-  // Check if response should be parsed as JSON
-  const contentType = res.headers.get('Content-Type');
-  if (contentType && contentType.includes('application/json')) {
-    return await res.json();
+    await throwIfResNotOk(res);
+    
+    // Check if response should be parsed as JSON
+    const contentType = res.headers.get('Content-Type');
+    if (contentType && contentType.includes('application/json')) {
+      return await res.json();
+    }
+    
+    return res;
+  } catch (error) {
+    console.error(`API request error for ${url}:`, error);
+    throw error;
   }
-  
-  return res;
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
@@ -59,17 +66,32 @@ export const getQueryFn: <T>(options: {
       headers["X-Dev-Mode"] = "true";
     }
     
-    const res = await fetch(queryKey[0] as string, {
-      credentials: "include",
-      headers
-    });
+    console.log(`Query request to ${queryKey[0]} with development mode: ${DEVELOPMENT_MODE}`);
+    
+    try {
+      const res = await fetch(queryKey[0] as string, {
+        credentials: "include",
+        headers
+      });
 
-    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-      return null;
+      if (unauthorizedBehavior === "returnNull" && res.status === 401) {
+        console.log(`401 Unauthorized for ${queryKey[0]}, returning null as configured`);
+        return null;
+      }
+
+      await throwIfResNotOk(res);
+      
+      const contentType = res.headers.get('Content-Type');
+      if (!contentType || !contentType.includes('application/json')) {
+        console.warn(`Response from ${queryKey[0]} is not JSON, content type: ${contentType}`);
+        return null;
+      }
+      
+      return await res.json();
+    } catch (error) {
+      console.error(`Query error for ${queryKey[0]}:`, error);
+      throw error;
     }
-
-    await throwIfResNotOk(res);
-    return await res.json();
   };
 
 export const queryClient = new QueryClient({

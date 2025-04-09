@@ -1,3 +1,15 @@
+#!/bin/bash
+
+# Create a backup of the file
+cp server/routes.ts server/routes.ts.bak
+
+# Remove any double closing parentheses issues
+cat server/routes.ts.bak | tr '\n' '~' | 
+  sed 's/withAuth(async (req, res) =>~.*?}));~/withAuth(async (req, res) => { ... });~/g' | 
+  tr '~' '\n' > server/routes.ts.cleaned
+
+# Revert to only contain the required parts (exports and function definitions)
+cat > server/routes.ts << EOF
 import { Express, Request, Response, NextFunction, RequestHandler } from "express";
 import { createServer, Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
@@ -11,7 +23,7 @@ import { User, Activity, InsertActivity, ActivityParticipant } from "@shared/sch
 import { storage } from "./storage";
 import { log as serverLog } from "./vite";
 import { upload, getFileUrl, generateThumbnail } from "./upload";
-// import { openaiRouter } from "./openai";
+import { openaiRouter } from "./openai";
 
 // Initialize Firebase Admin SDK
 try {
@@ -131,7 +143,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res: Response,
     error: any,
     retryOperation?: () => Promise<T>
-  ): Promise<Response | void> {
+  ): Promise<void> {
     console.error("Database operation error:", error);
     
     // If we have a retry operation and the error seems recoverable, try again
@@ -139,8 +151,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         console.log("Retrying database operation...");
         const result = await retryOperation();
-        res.json(result);
-        return;
+        return res.json(result);
       } catch (retryError) {
         console.error("Retry failed:", retryError);
       }
@@ -168,11 +179,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Define a function for logging with consistent format
   function log(message: string, level: 'info' | 'warn' | 'error' = 'info') {
     const timestamp = new Date().toISOString();
-    serverLog(message, 'routes');
+    serverLog(`[${timestamp}] [${level.toUpperCase()}] [routes] ${message}`);
   }
 
-  // Mount the OpenAI router - commented out for now
-  // app.use('/api/openai', openaiRouter);
+  // Mount the OpenAI router - we don't require authentication for these endpoints
+  // to allow for guest voice search functionality
+  app.use('/api/openai', openaiRouter);
   
   const httpServer = createServer(app);
   
@@ -184,3 +196,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   return httpServer;
 }
+EOF
+
+echo "Original file backed up to server/routes.ts.bak"
+echo "Simplified version of routes.ts created"
