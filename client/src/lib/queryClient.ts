@@ -1,4 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { DEVELOPMENT_MODE } from './constants';
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -16,8 +17,11 @@ export async function apiRequest(
   } = {},
 ): Promise<any> {
   const method = options.method || 'GET';
+  
+  // Add development mode header if in development mode
   const headers = { 
     ...(options.data ? { "Content-Type": "application/json" } : {}),
+    ...(DEVELOPMENT_MODE ? { "X-Dev-Mode": "true" } : {}),
     ...(options.headers || {})
   };
   
@@ -45,8 +49,15 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
+    // Add development mode header in development mode
+    const headers: Record<string, string> = {};
+    if (DEVELOPMENT_MODE) {
+      headers["X-Dev-Mode"] = "true";
+    }
+    
     const res = await fetch(queryKey[0] as string, {
       credentials: "include",
+      headers
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {

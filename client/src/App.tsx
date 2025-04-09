@@ -12,6 +12,7 @@ import NearbyView from "@/pages/nearby/NearbyView";
 import ActivitiesView from "@/pages/activities/ActivitiesView";
 import CreateActivity from "@/pages/activities/CreateActivity";
 import RecommendationsView from "@/pages/activities/RecommendationsView";
+import PreferencesView from "@/pages/activities/PreferencesView";
 import ChatView from "@/pages/chat/ChatView";
 import FriendsView from "@/pages/friends/FriendsView";
 import ChallengesView from "@/pages/challenges/ChallengesView";
@@ -66,6 +67,22 @@ function App() {
               {() => (
                 <AppLayout>
                   <CreateActivity />
+                </AppLayout>
+              )}
+            </Route>
+            
+            <Route path="/activities/recommendations">
+              {() => (
+                <AppLayout>
+                  <RecommendationsView />
+                </AppLayout>
+              )}
+            </Route>
+            
+            <Route path="/activities/preferences">
+              {() => (
+                <AppLayout>
+                  <PreferencesView />
                 </AppLayout>
               )}
             </Route>
