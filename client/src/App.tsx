@@ -2,6 +2,7 @@ import { Route, Switch } from "wouter";
 import { Toaster } from "@/components/ui/toaster";
 import NotFound from "@/pages/not-found";
 import Auth from "@/pages/auth/Auth";
+import Welcome from "@/pages/auth/Welcome";
 import AppLayout from "@/components/layout/AppLayout";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { BluetoothProvider } from "@/contexts/BluetothContext";
@@ -29,7 +30,7 @@ function App() {
           <MicroInteractionsProvider>
             <Switch>
               {/* Auth routes */}
-              <Route path="/" component={Auth} />
+              <Route path="/" component={Welcome} />
               <Route path="/login" component={Auth} />
               <Route path="/auth" component={Auth} />
               
