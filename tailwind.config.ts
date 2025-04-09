@@ -79,10 +79,95 @@ export default {
             height: "0",
           },
         },
+        "spin-slow": {
+          from: {
+            transform: "rotate(0deg)",
+          },
+          to: {
+            transform: "rotate(360deg)",
+          },
+        },
+        "float-up": {
+          "0%": {
+            transform: "translateY(0) scale(1)",
+            opacity: "1"
+          },
+          "100%": {
+            transform: "translateY(-20px) scale(0.8)",
+            opacity: "0"
+          }
+        },
+        "pulse-soft": {
+          "0%, 100%": {
+            opacity: "1",
+            transform: "scale(1)"
+          },
+          "50%": {
+            opacity: "0.8",
+            transform: "scale(1.05)"
+          }
+        },
+        "bounce-scale": {
+          "0%": {
+            transform: "scale(1)",
+          },
+          "50%": {
+            transform: "scale(1.1)",
+          },
+          "100%": {
+            transform: "scale(1)",
+          },
+        },
+        "wiggle": {
+          "0%, 100%": {
+            transform: "rotate(-3deg)",
+          },
+          "50%": {
+            transform: "rotate(3deg)",
+          },
+        },
+        "fade-in-scale": {
+          "0%": {
+            opacity: "0",
+            transform: "scale(0.95)",
+          },
+          "100%": {
+            opacity: "1",
+            transform: "scale(1)",
+          },
+        },
+        "slide-in-right": {
+          "0%": {
+            transform: "translateX(20px)",
+            opacity: "0",
+          },
+          "100%": {
+            transform: "translateX(0)",
+            opacity: "1",
+          },
+        },
+        "confetti-explosion": {
+          "0%": {
+            transform: "translate(-50%, -50%) scale(0)",
+            opacity: "1",
+          },
+          "100%": {
+            transform: "translate(-50%, -50%) scale(1.5)",
+            opacity: "0",
+          },
+        }
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "spin-slow": "spin-slow 3s linear infinite",
+        "float-up": "float-up 2s ease-out forwards",
+        "pulse-soft": "pulse-soft 2s ease-in-out infinite",
+        "bounce-scale": "bounce-scale 0.5s ease-in-out",
+        "wiggle": "wiggle 0.5s ease-in-out",
+        "fade-in-scale": "fade-in-scale 0.3s ease-out",
+        "slide-in-right": "slide-in-right 0.3s ease-out",
+        "confetti-explosion": "confetti-explosion 1s ease-out forwards"
       },
     },
   },

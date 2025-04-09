@@ -1,0 +1,45 @@
+/* Micro-interactions styles */
+
+/* Contextual Hint styling */
+.contextual-hint {
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.1));
+  transition: all 0.3s ease;
+}
+
+.contextual-hint:hover {
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.15));
+}
+
+.important-hint {
+  filter: drop-shadow(0 4px 12px rgba(255, 84, 84, 0.25));
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 84, 84, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(255, 84, 84, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 84, 84, 0);
+  }
+}
+
+/* Points reward animation */
+.points-reward-animation {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.point-particle {
+  position: absolute;
+  border-radius: 50%;
+  display: block;
+  pointer-events: none;
+}

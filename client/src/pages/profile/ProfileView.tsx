@@ -21,8 +21,10 @@ import {
   Edit, 
   MapPin,
   Clock,
-  Tag
+  Tag,
+  Sparkles
 } from 'lucide-react';
+import { InteractionDemo } from '@/components/profile/InteractionDemo';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { db, updateUserProfile } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
@@ -282,6 +284,16 @@ export default function ProfileView() {
               </Button>
             </div>
           </div>
+        </div>
+        
+        {/* Interactive Features Demo */}
+        <div className="mt-8 mb-8">
+          <h2 className="text-lg font-semibold flex items-center mb-4">
+            <Sparkles className="h-5 w-5 mr-2" />
+            Brukeropplevelse
+          </h2>
+          
+          <InteractionDemo />
         </div>
         
         {/* Logout Button */}
