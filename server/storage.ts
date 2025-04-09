@@ -163,8 +163,52 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserByFirebaseId(firebaseId: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.firebaseId, firebaseId));
-    return user;
+    try {
+      // Handle development mode user specifically
+      if (firebaseId === 'dev-user-1') {
+        const [devUser] = await db.select().from(users).where(eq(users.firebaseId, 'dev-user-1'));
+        if (devUser) {
+          return devUser;
+        } else {
+          // Create the dev user if it doesn't exist
+          console.log('Creating development mode user in database');
+          const newDevUser: InsertUser = {
+            firebaseId: 'dev-user-1',
+            username: 'devuser',
+            displayName: 'Dev User',
+            email: 'dev@example.com',
+            status: 'online',
+            interests: ['development', 'testing'],
+          };
+          
+          try {
+            const [createdUser] = await db.insert(users).values(newDevUser).returning();
+            return createdUser;
+          } catch (innerError) {
+            console.error('Error creating development user:', innerError);
+            // Return a mock user object in case of error to prevent the application from crashing
+            return {
+              id: 1,
+              firebaseId: 'dev-user-1',
+              username: 'devuser',
+              displayName: 'Dev User',
+              email: 'dev@example.com',
+              status: 'online',
+              interests: ['development', 'testing'],
+              createdAt: new Date(),
+              lastSeen: new Date(),
+            } as User;
+          }
+        }
+      }
+      
+      // Normal flow for non-development users
+      const [user] = await db.select().from(users).where(eq(users.firebaseId, firebaseId));
+      return user;
+    } catch (error) {
+      console.error('Error in getUserByFirebaseId:', error);
+      return undefined;
+    }
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {

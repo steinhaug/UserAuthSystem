@@ -82,6 +82,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           email: 'dev@example.com',
           name: 'Dev User',
           picture: '',
+          firebaseId: 'dev-user-1'
         };
         console.log('Using development mode authentication with mock user');
         return next();
@@ -209,7 +210,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }));
 
   // Activities endpoints
-  app.get("/api/activities", authenticateUser, async (req, res) => {
+  app.get("/api/activities", authenticateUser, withAuth(async (req, res) => {
     try {
       const activities = await storage.getActivities();
       res.json(activities);
@@ -217,9 +218,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error fetching activities:", error);
       res.status(500).json({ message: "Internal server error" });
     }
-  });
+  }));
 
-  app.post("/api/activities", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  app.post("/api/activities", authenticateUser, withAuth(async (req, res) => {
     try {
       // Validate required fields
       const { title, description, location, startTime, endTime, maxParticipants, category } = req.body;
