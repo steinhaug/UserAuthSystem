@@ -542,6 +542,299 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Reputation System API endpoints
+  
+  // Get user's reputation profile
+  app.get("/api/reputation/profile", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = req.user.uid;
+      const reputationProfile = await storage.getUserReputation(userId);
+      
+      if (!reputationProfile) {
+        // If no profile exists yet, return a placeholder with default values
+        return res.json({
+          userId,
+          overallScore: 50,
+          reliabilityScore: 50,
+          safetyScore: 50,
+          communityScore: 50,
+          activityCount: 0,
+          verificationLevel: 0,
+          isVerified: false,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+      }
+      
+      return res.json(reputationProfile);
+    } catch (error) {
+      return handleApiDatabaseError(error, res);
+    }
+  });
+  
+  // Create or update user's reputation profile
+  app.post("/api/reputation/profile", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = req.user.uid;
+      const reputationData = req.body;
+      
+      // Validate input
+      if (!reputationData) {
+        return sendErrorResponse(
+          res,
+          400,
+          ApiErrorCode.BAD_REQUEST,
+          "Missing reputation data"
+        );
+      }
+      
+      // Check if profile already exists
+      const existingProfile = await storage.getUserReputation(userId);
+      
+      let reputationProfile;
+      
+      if (existingProfile) {
+        // Update existing profile
+        reputationProfile = await storage.updateUserReputation(userId, reputationData);
+      } else {
+        // Create new profile
+        reputationProfile = await storage.createUserReputation({
+          userId,
+          overallScore: reputationData.overallScore || 50,
+          reliabilityScore: reputationData.reliabilityScore || 50,
+          safetyScore: reputationData.safetyScore || 50,
+          communityScore: reputationData.communityScore || 50,
+          activityCount: reputationData.activityCount || 0,
+          verificationLevel: reputationData.verificationLevel || 0,
+          isVerified: reputationData.isVerified || false
+        });
+      }
+      
+      return res.json(reputationProfile);
+    } catch (error) {
+      return handleApiDatabaseError(error, res);
+    }
+  });
+  
+  // Get user's reputation events
+  app.get("/api/reputation/events", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = req.user.uid;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+      
+      const events = await storage.getReputationEvents(userId, limit);
+      return res.json(events);
+    } catch (error) {
+      return handleApiDatabaseError(error, res);
+    }
+  });
+  
+  // Create a new reputation event
+  app.post("/api/reputation/events", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { eventTypeId, referenceId, referenceType, value, details } = req.body;
+      const userId = req.user.uid;
+      
+      // Validate input
+      if (!eventTypeId || !referenceType) {
+        return sendErrorResponse(
+          res,
+          400,
+          ApiErrorCode.BAD_REQUEST,
+          "Missing required event data"
+        );
+      }
+      
+      const newEvent = await storage.createReputationEvent({
+        userId,
+        eventTypeId,
+        referenceId: referenceId || `manual_${Date.now()}`,
+        referenceType,
+        value: value || 0,
+        details: details || '{}'
+      });
+      
+      return res.status(201).json(newEvent);
+    } catch (error) {
+      return handleApiDatabaseError(error, res);
+    }
+  });
+  
+  // Get available reputation event types
+  app.get("/api/reputation/event-types", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const eventTypes = await storage.getReputationEventTypes();
+      return res.json(eventTypes);
+    } catch (error) {
+      return handleApiDatabaseError(error, res);
+    }
+  });
+  
+  // User ratings endpoints
+  
+  // Get ratings for a user
+  app.get("/api/reputation/ratings", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = req.user.uid;
+      const asReceiver = req.query.as_receiver !== 'false'; // Default to true
+      
+      const ratings = await storage.getUserRatings(userId, asReceiver);
+      return res.json(ratings);
+    } catch (error) {
+      return handleApiDatabaseError(error, res);
+    }
+  });
+  
+  // Create a new rating
+  app.post("/api/reputation/ratings", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { receiverId, score, comment, context, referenceId, isAnonymous } = req.body;
+      const giverId = req.user.uid;
+      
+      // Validate input
+      if (!receiverId || score === undefined || !context) {
+        return sendErrorResponse(
+          res,
+          400,
+          ApiErrorCode.BAD_REQUEST,
+          "Missing required rating data"
+        );
+      }
+      
+      // Prevent self-rating
+      if (giverId === receiverId) {
+        return sendErrorResponse(
+          res,
+          400,
+          ApiErrorCode.BAD_REQUEST,
+          "Cannot rate yourself"
+        );
+      }
+      
+      const newRating = await storage.createUserRating({
+        giverId,
+        receiverId,
+        score,
+        comment: comment || '',
+        context,
+        referenceId: referenceId || `manual_${Date.now()}`,
+        isAnonymous: isAnonymous || false
+      });
+      
+      return res.status(201).json(newRating);
+    } catch (error) {
+      return handleApiDatabaseError(error, res);
+    }
+  });
+  
+  // Trust connection endpoints
+  
+  // Get trust connections for a user
+  app.get("/api/reputation/trust", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = req.user.uid;
+      const asTrusted = req.query.as_trusted === 'true'; // Default to false
+      
+      const connections = await storage.getTrustConnections(userId, asTrusted);
+      return res.json(connections);
+    } catch (error) {
+      return handleApiDatabaseError(error, res);
+    }
+  });
+  
+  // Create a new trust connection
+  app.post("/api/reputation/trust", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { trustedId, level, notes } = req.body;
+      const trusterId = req.user.uid;
+      
+      // Validate input
+      if (!trustedId || level === undefined) {
+        return sendErrorResponse(
+          res,
+          400,
+          ApiErrorCode.BAD_REQUEST,
+          "Missing required trust connection data"
+        );
+      }
+      
+      // Prevent self-trust
+      if (trusterId === trustedId) {
+        return sendErrorResponse(
+          res,
+          400,
+          ApiErrorCode.BAD_REQUEST,
+          "Cannot trust yourself"
+        );
+      }
+      
+      // Create the connection
+      try {
+        const newConnection = await storage.createTrustConnection({
+          trusterId,
+          trustedId,
+          level,
+          notes: notes || null
+        });
+        
+        return res.status(201).json(newConnection);
+      } catch (error) {
+        // Check if error is about existing connection
+        if (error instanceof Error && error.message.includes('already exists')) {
+          return sendErrorResponse(
+            res,
+            409,
+            ApiErrorCode.CONFLICT,
+            "Trust connection already exists. Use PUT to update it."
+          );
+        }
+        throw error;
+      }
+    } catch (error) {
+      return handleApiDatabaseError(error, res);
+    }
+  });
+  
+  // Update an existing trust connection
+  app.put("/api/reputation/trust/:trustedId", authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { trustedId } = req.params;
+      const { level, notes } = req.body;
+      const trusterId = req.user.uid;
+      
+      // Validate input
+      if (!trustedId || level === undefined) {
+        return sendErrorResponse(
+          res,
+          400,
+          ApiErrorCode.BAD_REQUEST,
+          "Missing required trust connection data"
+        );
+      }
+      
+      // Update the connection
+      const updatedConnection = await storage.updateTrustConnection(
+        trusterId,
+        trustedId,
+        level,
+        notes
+      );
+      
+      if (!updatedConnection) {
+        return sendErrorResponse(
+          res,
+          404,
+          ApiErrorCode.NOT_FOUND,
+          "Trust connection not found"
+        );
+      }
+      
+      return res.json(updatedConnection);
+    } catch (error) {
+      return handleApiDatabaseError(error, res);
+    }
+  });
+
   const httpServer = createServer(app);
   
   // Initialize WebSocket server on the same HTTP server but on a different path

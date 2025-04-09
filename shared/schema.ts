@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, primaryKey, foreignKey, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, primaryKey, foreignKey, index, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -38,6 +38,11 @@ export const usersRelations = relations(users, ({ many, one }) => ({
   bluetoothDevices: many(bluetoothDevices),
   activityPreferences: one(activityPreferences),
   activityRecommendations: many(activityRecommendations),
+  reputationProfile: one(userReputations),
+  givenRatings: many(userRatings, { relationName: "ratingGiver" }),
+  receivedRatings: many(userRatings, { relationName: "ratingReceiver" }),
+  trustConnections: many(trustConnections, { relationName: "trustGiver" }),
+  trustedByConnections: many(trustConnections, { relationName: "trustReceiver" }),
 }));
 
 // Friends table
@@ -341,6 +346,138 @@ export const activityRecommendations = pgTable("activity_recommendations", {
   };
 });
 
+// User reputation table - stores overall reputation scores for each user
+export const userReputations = pgTable("user_reputations", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.firebaseId).unique(),
+  overallScore: real("overall_score").notNull().default(0), // Overall reputation score (0-100)
+  reliabilityScore: real("reliability_score").notNull().default(0), // Reliability score (0-100)
+  safetyScore: real("safety_score").notNull().default(0), // Safety score (0-100)
+  communityScore: real("community_score").notNull().default(0), // Community contribution score (0-100)
+  activityCount: integer("activity_count").notNull().default(0), // Number of activities completed
+  verificationLevel: integer("verification_level").notNull().default(0), // 0-5 verification level
+  isVerified: boolean("is_verified").notNull().default(false), // Quick flag for whether user is verified
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => {
+  return {
+    userIdIdx: index("user_reputations_user_id_idx").on(table.userId),
+    overallScoreIdx: index("user_reputations_overall_score_idx").on(table.overallScore),
+    verificationLevelIdx: index("user_reputations_verification_level_idx").on(table.verificationLevel),
+  };
+});
+
+// Reputation event types table - stores types of events that can affect reputation
+export const reputationEventTypes = pgTable("reputation_event_types", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(), // e.g., "activity_completed", "no_show", "good_rating"
+  category: text("category").notNull(), // reliability, safety, community, etc.
+  impact: real("impact").notNull(), // Impact magnitude (positive or negative)
+  description: text("description").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+});
+
+// Reputation events table - records all events that affect user reputation
+export const reputationEvents = pgTable("reputation_events", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.firebaseId),
+  eventTypeId: integer("event_type_id").notNull().references(() => reputationEventTypes.id),
+  referenceId: text("reference_id"), // Optional ID referencing related entity (activity, rating, etc.)
+  referenceType: text("reference_type"), // Type of reference (activity, rating, verification, etc.)
+  value: real("value").notNull(), // Value of this event (can be weighted)
+  details: jsonb("details"), // Additional details about the event
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    userIdIdx: index("reputation_events_user_id_idx").on(table.userId),
+    eventTypeIdIdx: index("reputation_events_event_type_id_idx").on(table.eventTypeId),
+    createdAtIdx: index("reputation_events_created_at_idx").on(table.createdAt),
+  };
+});
+
+// User ratings table - ratings between users
+export const userRatings = pgTable("user_ratings", {
+  id: serial("id").primaryKey(),
+  giverId: text("giver_id").notNull().references(() => users.firebaseId), // User giving the rating
+  receiverId: text("receiver_id").notNull().references(() => users.firebaseId), // User receiving the rating
+  score: integer("score").notNull(), // Rating score (1-5)
+  comment: text("comment"), // Optional comment
+  context: text("context").notNull(), // activity, chat, bluetooth_encounter
+  referenceId: text("reference_id"), // ID of related entity (activity, chat, etc.)
+  isAnonymous: boolean("is_anonymous").notNull().default(false), // Whether rating is anonymous
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    giverIdIdx: index("user_ratings_giver_id_idx").on(table.giverId),
+    receiverIdIdx: index("user_ratings_receiver_id_idx").on(table.receiverId),
+    scoreIdx: index("user_ratings_score_idx").on(table.score),
+    contextIdx: index("user_ratings_context_idx").on(table.context),
+    giverReceiverIdx: index("user_ratings_giver_receiver_idx").on(table.giverId, table.receiverId),
+  };
+});
+
+// Trust connections table - explicit trust connections between users
+export const trustConnections = pgTable("trust_connections", {
+  id: serial("id").primaryKey(),
+  trusterId: text("truster_id").notNull().references(() => users.firebaseId), // User who trusts
+  trustedId: text("trusted_id").notNull().references(() => users.firebaseId), // User who is trusted
+  level: integer("level").notNull().default(1), // Trust level (1-3)
+  notes: text("notes"), // Optional notes about trust relationship
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => {
+  return {
+    trusterIdIdx: index("trust_connections_truster_id_idx").on(table.trusterId),
+    trustedIdIdx: index("trust_connections_trusted_id_idx").on(table.trustedId),
+    levelIdx: index("trust_connections_level_idx").on(table.level),
+    trusterTrustedIdx: index("trust_connections_truster_trusted_idx").on(table.trusterId, table.trustedId),
+  };
+});
+
+// Define relations for reputation tables
+export const userReputationsRelations = relations(userReputations, ({ one }) => ({
+  user: one(users, {
+    fields: [userReputations.userId],
+    references: [users.firebaseId],
+  }),
+}));
+
+export const reputationEventsRelations = relations(reputationEvents, ({ one }) => ({
+  user: one(users, {
+    fields: [reputationEvents.userId],
+    references: [users.firebaseId],
+  }),
+  eventType: one(reputationEventTypes, {
+    fields: [reputationEvents.eventTypeId],
+    references: [reputationEventTypes.id],
+  }),
+}));
+
+export const userRatingsRelations = relations(userRatings, ({ one }) => ({
+  giver: one(users, {
+    fields: [userRatings.giverId],
+    references: [users.firebaseId],
+    relationName: "ratingGiver",
+  }),
+  receiver: one(users, {
+    fields: [userRatings.receiverId],
+    references: [users.firebaseId],
+    relationName: "ratingReceiver",
+  }),
+}));
+
+export const trustConnectionsRelations = relations(trustConnections, ({ one }) => ({
+  truster: one(users, {
+    fields: [trustConnections.trusterId],
+    references: [users.firebaseId],
+    relationName: "trustGiver",
+  }),
+  trusted: one(users, {
+    fields: [trustConnections.trustedId],
+    references: [users.firebaseId],
+    relationName: "trustReceiver",
+  }),
+}));
+
 // Define activity recommendations relations
 export const activityRecommendationsRelations = relations(activityRecommendations, ({ one }) => ({
   user: one(users, {
@@ -425,6 +562,31 @@ export const insertActivityRecommendationSchema = createInsertSchema(activityRec
   updatedAt: true,
 });
 
+export const insertUserReputationSchema = createInsertSchema(userReputations).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export const insertReputationEventTypeSchema = createInsertSchema(reputationEventTypes).omit({
+  id: true,
+});
+
+export const insertReputationEventSchema = createInsertSchema(reputationEvents).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertUserRatingSchema = createInsertSchema(userRatings).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertTrustConnectionSchema = createInsertSchema(trustConnections).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -464,3 +626,18 @@ export type ActivityPreferences = typeof activityPreferences.$inferSelect;
 
 export type InsertActivityRecommendation = z.infer<typeof insertActivityRecommendationSchema>;
 export type ActivityRecommendation = typeof activityRecommendations.$inferSelect;
+
+export type InsertUserReputation = z.infer<typeof insertUserReputationSchema>;
+export type UserReputation = typeof userReputations.$inferSelect;
+
+export type InsertReputationEventType = z.infer<typeof insertReputationEventTypeSchema>;
+export type ReputationEventType = typeof reputationEventTypes.$inferSelect;
+
+export type InsertReputationEvent = z.infer<typeof insertReputationEventSchema>;
+export type ReputationEvent = typeof reputationEvents.$inferSelect;
+
+export type InsertUserRating = z.infer<typeof insertUserRatingSchema>;
+export type UserRating = typeof userRatings.$inferSelect;
+
+export type InsertTrustConnection = z.infer<typeof insertTrustConnectionSchema>;
+export type TrustConnection = typeof trustConnections.$inferSelect;
