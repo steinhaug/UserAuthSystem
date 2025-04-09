@@ -89,8 +89,30 @@ export default function SimpleMapView() {
       
       map.current = mapInstance;
       
-      // Add navigation controls
-      mapInstance.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
+      // Add navigation controls with custom sizing
+      const navControl = new mapboxgl.NavigationControl({ 
+        showCompass: false, // Vi viser bare zoom-knappene
+        visualizePitch: false 
+      });
+      mapInstance.addControl(navControl, 'bottom-right');
+      
+      // Styling av zoom-knappene for å gjøre dem mindre
+      // Vi får dette inn på DOM-en når Mapbox har lagt til kontrollene
+      setTimeout(() => {
+        const zoomButtons = document.querySelectorAll('.mapboxgl-ctrl-zoom-in, .mapboxgl-ctrl-zoom-out');
+        zoomButtons.forEach(button => {
+          (button as HTMLElement).style.width = '24px';
+          (button as HTMLElement).style.height = '24px';
+          (button as HTMLElement).style.lineHeight = '24px';
+          
+          // Gjør også hele kontroll-containeren mindre
+          const container = button.closest('.mapboxgl-ctrl-group');
+          if (container) {
+            (container as HTMLElement).style.marginBottom = '50px';
+            (container as HTMLElement).style.marginRight = '10px';
+          }
+        });
+      }, 100);
       
       console.log("Map created successfully");
       
