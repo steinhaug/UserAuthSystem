@@ -3,6 +3,10 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --primary-rgb: 69, 59, 145; /* Mørk lilla-blå, tilsvarer vår primærfarge */
+  }
+  
   * {
     @apply border-border;
   }
@@ -107,17 +111,21 @@
 
 /* Søkeresultater styling */
 .search-results-container {
-  @apply overflow-hidden;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  @apply overflow-hidden rounded-lg;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
   transition: all 0.3s ease;
 }
 
 .search-result-item {
-  @apply relative overflow-hidden;
+  @apply relative overflow-hidden border-b border-border/50 px-4 py-3;
   transition: all 0.2s ease;
+}
+
+.search-result-item:last-child {
+  @apply border-b-0;
 }
 
 .search-result-item::before {
@@ -126,7 +134,7 @@
   left: 0;
   top: 0;
   height: 100%;
-  width: 4px;
+  width: 3px;
   background: linear-gradient(to bottom, theme('colors.primary.DEFAULT'), rgba(0, 0, 0, 0.2));
   opacity: 0;
   transition: opacity 0.2s ease;
@@ -148,35 +156,58 @@
   opacity: 1;
 }
 
+.search-result-item .item-title {
+  @apply text-sm font-medium mb-0.5;
+}
+
+.search-result-item .item-description {
+  @apply text-xs text-muted-foreground;
+}
+
 /* Card styling */
 .card {
-  @apply bg-card border border-border rounded-xl shadow-sm overflow-hidden;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  @apply bg-card border border-border/50 rounded-lg shadow-sm overflow-hidden relative;
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, rgba(var(--primary-rgb), 0.03), transparent);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 0;
 }
 
 .card:hover {
-  @apply shadow-md;
-  transform: translateY(-2px);
+  @apply shadow-md border-border;
+  transform: translateY(-3px);
+}
+
+.card:hover::before {
+  opacity: 1;
 }
 
 .card-header {
-  @apply p-4 border-b border-border bg-muted/40 flex items-center justify-between;
+  @apply p-4 border-b border-border/50 bg-muted/20 flex items-center justify-between relative z-10;
 }
 
 .card-content {
-  @apply p-5;
+  @apply p-5 relative z-10;
 }
 
 .card-title {
-  @apply text-lg font-medium;
+  @apply text-lg font-medium leading-snug mb-1;
 }
 
 .card-description {
-  @apply text-muted-foreground mt-1;
+  @apply text-muted-foreground text-sm;
 }
 
 .card-footer {
-  @apply p-4 bg-muted/30 border-t border-border flex justify-between items-center;
+  @apply p-4 bg-muted/10 border-t border-border/50 flex justify-between items-center relative z-10;
 }
 
 /* Interactive elements */
@@ -195,11 +226,12 @@
   background: linear-gradient(
     to bottom right, 
     rgba(255, 255, 255, 0) 0%, 
-    rgba(255, 255, 255, 0.1) 50%, 
+    rgba(255, 255, 255, 0.08) 40%, 
+    rgba(var(--primary-rgb), 0.05) 50%, 
     rgba(255, 255, 255, 0) 100%
   );
   transform: rotate(45deg);
-  animation: glint 6s linear infinite;
+  animation: glint 4s cubic-bezier(0.25, 0.8, 0.25, 1) infinite;
   pointer-events: none;
 }
 
@@ -210,4 +242,46 @@
   100% {
     transform: translate(100%, 100%) rotate(45deg);
   }
+}
+
+/* Pulse effect for active items */
+.pulse {
+  position: relative;
+}
+
+.pulse::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: rgba(var(--primary-rgb), 0.3);
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  z-index: -1;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+/* Hover transitions */
+.hover-lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Focus ring style */
+.focus-ring:focus-visible {
+  @apply outline-none ring-2 ring-primary/50 ring-offset-2;
+  transition: all 0.2s ease;
 }
