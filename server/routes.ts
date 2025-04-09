@@ -174,6 +174,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Mount the OpenAI router - commented out for now
   // app.use('/api/openai', openaiRouter);
   
+  // API endpoint for activity recommendations
+  app.get('/api/recommendations', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const recommendations = await storage.getActivityRecommendationsForUser(req.user.uid);
+      return res.json({ recommendations });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+  
+  // API endpoint for generating new recommendations
+  app.post('/api/recommendations/generate', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const recommendations = await storage.generateRecommendationsForUser(req.user.uid);
+      return res.json({ recommendations });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+  
+  // API endpoint for updating recommendation status
+  app.patch('/api/recommendations/:id/status', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { status } = req.body;
+      
+      if (!status || !['pending', 'accepted', 'rejected', 'saved'].includes(status)) {
+        return sendErrorResponse(
+          res,
+          "Invalid status value",
+          "400",
+          ApiErrorCode.VALIDATION_ERROR,
+          { accepted_values: ['pending', 'accepted', 'rejected', 'saved'] }
+        );
+      }
+      
+      const updatedRecommendation = await storage.updateActivityRecommendationStatus(id, status);
+      return res.json({ recommendation: updatedRecommendation });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+  
   const httpServer = createServer(app);
   
   // Initialize WebSocket server on the same HTTP server but on a different path
