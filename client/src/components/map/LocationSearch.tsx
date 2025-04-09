@@ -1,271 +1,238 @@
-import { useState, useEffect, useRef } from 'react';
-import { SearchIcon, XIcon, Loader2Icon, Clock } from 'lucide-react';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { useSearchHistory } from '../../hooks/use-search-history';
-import { SearchHistoryList } from './SearchHistoryList';
+import React, { useState, useRef, useEffect } from "react";
+import { Loader2, Search, History, MapPin, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { 
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator
+} from "@/components/ui/command";
+import { 
+  useSearchSuggestions, 
+  useNearbySearchSuggestions, 
+  useSaveSearchHistory 
+} from "@/hooks/use-search-history";
+import { SearchHistoryList } from "./SearchHistoryList";
 
 interface LocationSearchProps {
-  onResultsFound: (results: Array<{
-    name: string;
-    address?: string;
-    coordinates: [number, number]; // [longitude, latitude]
-    description?: string;
-    type?: string;
-  }>) => void;
-  onDirectLocation?: (location: { latitude: string; longitude: string; name: string }) => void;
+  onSearch: (query: string) => void;
+  initialValue?: string;
+  className?: string;
+  placeholder?: string;
+  autoFocus?: boolean;
 }
 
-export function LocationSearch({ onResultsFound, onDirectLocation }: LocationSearchProps) {
-  const [searchText, setSearchText] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+export function LocationSearch({
+  onSearch,
+  initialValue = "",
+  className = "",
+  placeholder = "Søk etter aktiviteter, steder eller personer...",
+  autoFocus = false
+}: LocationSearchProps) {
+  const [query, setQuery] = useState(initialValue);
+  const [isOpen, setIsOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   
-  const { 
-    getSuggestions, 
-    saveSearch, 
-    updateLastLocation
-  } = useSearchHistory();
+  const { data: suggestions = [], isLoading: suggestionsLoading } = useSearchSuggestions(
+    query.length > 1 ? query : ""
+  );
+  
+  const { data: nearbySuggestions = [], isLoading: nearbyLoading } = useNearbySearchSuggestions();
+  const saveSearchMutation = useSaveSearchHistory();
 
   useEffect(() => {
-    // Get search suggestions when search text changes
-    if (searchText.trim().length > 1) {
-      const fetchSuggestions = async () => {
-        try {
-          const fetchedSuggestions = await getSuggestions(searchText.trim());
-          setSuggestions(fetchedSuggestions);
-        } catch (error) {
-          console.error('Failed to fetch suggestions:', error);
-          setSuggestions([]);
-        }
-      };
-      
-      fetchSuggestions();
-    } else {
-      setSuggestions([]);
-    }
-  }, [searchText]);
-  
-  // Handle search submission
-  const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
+    const down = (e: KeyboardEvent) => {
+      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setIsOpen((open) => !open);
+      }
+    };
+    
+    document.addEventListener("keydown", down);
+    return () => document.removeEventListener("keydown", down);
+  }, []);
+
+  const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     
-    const query = overrideQuery || searchText;
     if (!query.trim()) return;
     
-    setIsLoading(true);
-    setErrorMessage(null);
-    setShowSuggestions(false);
+    // Save search to history
+    saveSearchMutation.mutate({
+      query: query.trim()
+    });
     
-    try {
-      // Call the API to search for locations
-      const response = await fetch('/api/openai/location-search', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ query }),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Search failed: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      
-      if (data.places && data.places.length > 0) {
-        // Process the results
-        onResultsFound(data.places);
-        
-        // Save search to history
-        const firstPlace = data.places[0];
-        saveSearch({
-          query,
-          latitude: firstPlace.coordinates[1].toString(),
-          longitude: firstPlace.coordinates[0].toString(),
-          category: firstPlace.type || undefined,
-          resultCount: data.places.length,
-          successful: true
-        });
-        
-        // Update last location in preferences
-        updateLastLocation({
-          latitude: firstPlace.coordinates[1].toString(),
-          longitude: firstPlace.coordinates[0].toString()
-        });
-        
-        // Update the search text if we used an override
-        if (overrideQuery) {
-          setSearchText(overrideQuery);
-        }
-      } else {
-        setErrorMessage('No locations found. Try a more specific search.');
-        
-        // Save failed search to history
-        saveSearch({
-          query,
-          successful: false
-        });
-      }
-    } catch (error) {
-      console.error('Error searching for location:', error);
-      setErrorMessage('Failed to search. Please try again.');
-      
-      // Save failed search to history
-      saveSearch({
-        query,
-        successful: false
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
-  // Clear search
-  const clearSearch = () => {
-    setSearchText('');
-    setErrorMessage(null);
-    setShowSuggestions(false);
-  };
-  
-  // Handle selecting a suggestion
-  const handleSelectSuggestion = (suggestion: string) => {
-    setShowSuggestions(false);
-    handleSearch(undefined, suggestion);
+    // Execute search
+    onSearch(query.trim());
+    setIsOpen(false);
   };
 
-  // Handle direct location selection from history
-  const handleSelectLocation = (location: { latitude: string; longitude: string; name: string }) => {
-    if (onDirectLocation) {
-      onDirectLocation(location);
-      setShowHistory(false);
-    }
+  const handleSuggestionClick = (suggestion: string) => {
+    setQuery(suggestion);
+    
+    // Save search to history
+    saveSearchMutation.mutate({
+      query: suggestion
+    });
+    
+    // Execute search
+    onSearch(suggestion);
+    setIsOpen(false);
   };
-  
-  // Handle input focus
-  const handleInputFocus = () => {
-    if (searchText.trim().length > 1) {
-      setShowSuggestions(true);
-    }
+
+  const handleHistoryClick = (historyQuery: string) => {
+    setQuery(historyQuery);
+    
+    // Save search to history
+    saveSearchMutation.mutate({
+      query: historyQuery
+    });
+    
+    // Execute search
+    onSearch(historyQuery);
+    setShowHistory(false);
   };
 
   return (
-    <>
-      <form onSubmit={handleSearch} className="relative">
-        <div className="flex gap-1 p-2">
-          <div className="relative flex-grow">
-            <Input
-              ref={inputRef}
-              type="text"
-              placeholder="Search for a location..."
-              value={searchText}
-              onChange={(e) => {
-                setSearchText(e.target.value);
-                if (e.target.value.trim().length > 1) {
-                  setShowSuggestions(true);
-                } else {
-                  setShowSuggestions(false);
-                }
-              }}
-              onFocus={handleInputFocus}
-              className="pl-9 pr-8"
-              disabled={isLoading}
-            />
-            <SearchIcon className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            
-            {searchText && (
+    <div className={className}>
+      <div className="relative">
+        <form onSubmit={handleSubmit} className="relative">
+          <Input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={placeholder}
+            className="pr-24"
+            autoFocus={autoFocus}
+            onFocus={() => setIsOpen(true)}
+          />
+          <div className="absolute right-0 top-0 flex h-full items-center gap-1 pr-2">
+            {query && (
               <Button
                 type="button"
+                size="icon"
                 variant="ghost"
-                size="sm"
-                className="absolute right-1 top-1.5 h-6 w-6 p-0 rounded-full"
-                onClick={clearSearch}
+                className="h-7 w-7"
+                onClick={() => setQuery("")}
               >
-                <XIcon className="h-4 w-4" />
+                <X className="h-4 w-4" />
+                <span className="sr-only">Tøm søk</span>
               </Button>
             )}
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={() => setShowHistory(!showHistory)}
+            >
+              <History className="h-4 w-4" />
+              <span className="sr-only">Søkehistorikk</span>
+            </Button>
+            <Button type="submit" size="icon" variant="ghost" className="h-7 w-7">
+              <Search className="h-4 w-4" />
+              <span className="sr-only">Søk</span>
+            </Button>
           </div>
-          
-          <Button
-            type="submit"
-            variant="default"
-            className="h-10"
-            disabled={isLoading || !searchText.trim()}
-          >
-            {isLoading ? (
-              <Loader2Icon className="h-4 w-4 animate-spin" />
-            ) : (
-              'Search'
-            )}
-          </Button>
-          
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-10 w-10"
-            type="button"
-            onClick={() => setShowHistory(true)}
-          >
-            <Clock className="h-4 w-4" />
-          </Button>
-        </div>
-        
-        {errorMessage && (
-          <div className="px-2 py-1 text-xs text-red-500">
-            {errorMessage}
-          </div>
-        )}
-      </form>
+        </form>
 
-      {/* Suggestions popover */}
-      {showSuggestions && suggestions.length > 0 && (
-        <div className="absolute top-full left-0 mt-1 w-full z-50 bg-white border rounded-md shadow-lg max-h-60 overflow-auto">
-          <div className="p-2 text-sm font-medium text-gray-500">Search Suggestions</div>
-          <ul className="divide-y divide-gray-100">
-            {suggestions.map((suggestion, index) => (
-              <li
-                key={`suggestion-${index}`}
-                className="p-2 hover:bg-gray-100 cursor-pointer flex items-center"
-                onClick={() => handleSelectSuggestion(suggestion)}
-              >
-                <Clock className="mr-2 h-4 w-4 text-gray-500" />
-                <span>{suggestion}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* History dialog */}
-      {showHistory && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-auto">
-            <div className="flex justify-between items-center p-4 border-b">
-              <h3 className="font-medium">Search History</h3>
-              <Button variant="ghost" size="sm" onClick={() => setShowHistory(false)}>
-                <XIcon className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="p-4">
+        {showHistory && (
+          <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border bg-popover shadow-md">
+            <div className="max-h-80 overflow-y-auto p-2">
               <SearchHistoryList 
-                onSelectSearch={(query) => {
-                  handleSearch(undefined, query);
-                  setShowHistory(false);
-                }}
-                onSelectLocation={(location) => {
-                  handleSelectLocation(location);
-                  setShowHistory(false);
-                }}
-                className="border-none shadow-none"
+                onSelectItem={handleHistoryClick} 
+                limit={5}
               />
             </div>
           </div>
-        </div>
-      )}
-    </>
+        )}
+      </div>
+
+      <CommandDialog open={isOpen} onOpenChange={setIsOpen}>
+        <CommandInput 
+          placeholder="Søk etter aktiviteter, steder eller personer..." 
+          value={query}
+          onValueChange={setQuery}
+        />
+        <CommandList>
+          <CommandEmpty>
+            {query.length > 0 ? (
+              "Ingen forslag funnet"
+            ) : (
+              "Begynn å skrive for å søke"
+            )}
+          </CommandEmpty>
+
+          {query.length > 0 && suggestions.length > 0 && (
+            <CommandGroup heading="Forslag">
+              {suggestionsLoading ? (
+                <CommandItem disabled>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <span>Laster forslag...</span>
+                </CommandItem>
+              ) : (
+                suggestions.map((suggestion: string, index: number) => (
+                  <CommandItem 
+                    key={`suggestion-${index}`}
+                    onSelect={() => {
+                      handleSuggestionClick(suggestion);
+                      return suggestion;
+                    }}
+                  >
+                    <Search className="mr-2 h-4 w-4" />
+                    <span>{suggestion}</span>
+                  </CommandItem>
+                ))
+              )}
+            </CommandGroup>
+          )}
+
+          {nearbySuggestions.length > 0 && (
+            <>
+              <CommandSeparator />
+              <CommandGroup heading="I nærheten">
+                {nearbyLoading ? (
+                  <CommandItem disabled>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <span>Laster steder i nærheten...</span>
+                  </CommandItem>
+                ) : (
+                  nearbySuggestions.map((suggestion: string, index: number) => (
+                    <CommandItem 
+                      key={`nearby-${index}`}
+                      onSelect={() => {
+                        handleSuggestionClick(suggestion);
+                        return suggestion;
+                      }}
+                    >
+                      <MapPin className="mr-2 h-4 w-4" />
+                      <span>{suggestion}</span>
+                    </CommandItem>
+                  ))
+                )}
+              </CommandGroup>
+            </>
+          )}
+
+          <CommandSeparator />
+          <CommandGroup>
+            <CommandItem 
+              onSelect={() => {
+                handleSubmit();
+                return query;
+              }}
+              className="justify-center text-center"
+            >
+              <span>Søk etter "{query}"</span>
+            </CommandItem>
+          </CommandGroup>
+        </CommandList>
+      </CommandDialog>
+    </div>
   );
 }

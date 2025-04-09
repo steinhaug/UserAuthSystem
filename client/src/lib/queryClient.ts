@@ -12,23 +12,27 @@ export async function apiRequest(
   url: string,
   options: {
     method?: string; 
+    body?: string;
     data?: unknown | undefined;
     headers?: Record<string, string>;
   } = {},
-): Promise<any> {
+): Promise<Response> {
   const method = options.method || 'GET';
   
   // Add development mode header if in development mode
   const headers = { 
-    ...(options.data ? { "Content-Type": "application/json" } : {}),
+    ...(options.body || options.data ? { "Content-Type": "application/json" } : {}),
     ...(DEVELOPMENT_MODE ? { "X-Dev-Mode": "true" } : {}),
     ...(options.headers || {})
   };
   
+  // Use either direct body or stringify data
+  const body = options.body || (options.data ? JSON.stringify(options.data) : undefined);
+  
   const res = await fetch(url, {
     method,
     headers,
-    body: options.data ? JSON.stringify(options.data) : undefined,
+    body,
     credentials: "include",
   });
 

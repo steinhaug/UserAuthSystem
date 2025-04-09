@@ -267,13 +267,15 @@ export const searchHistory = pgTable("search_history", {
   tags: text("tags").array(), // User-defined tags for organizing searches
   favorite: boolean("favorite").notNull().default(false), // Mark as favorite
   notes: text("notes"), // User notes about this search
-  successful: boolean("successful").notNull().default(true)
+  successful: boolean("successful").notNull().default(true),
+  type: text("type") // Type of search: "map_search", "suggestion_click", "history_click"
 }, (table) => {
   return {
     userIdIdx: index("search_history_user_id_idx").on(table.userId),
     timestampIdx: index("search_history_timestamp_idx").on(table.timestamp),
     categoryIdx: index("search_history_category_idx").on(table.category),
-    favoriteIdx: index("search_history_favorite_idx").on(table.favorite)
+    favoriteIdx: index("search_history_favorite_idx").on(table.favorite),
+    typeIdx: index("search_history_type_idx").on(table.type)
   };
 });
 

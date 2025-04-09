@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { Button } from '@/components/ui/button';
-import { VoiceSearch } from "../../components/map/VoiceSearch";
-import { LocationSearch } from "../../components/map/LocationSearch";
-import { NearMeNow } from "../../components/map/NearMeNow";
-import { useSearchHistory } from "../../hooks/use-search-history";
+import { VoiceSearch } from "@/components/map/VoiceSearch";
+import { LocationSearch } from "@/components/map/LocationSearch";
+import { NearMeNow } from "@/components/map/NearMeNow";
+import { useSaveSearchHistory } from "@/hooks/use-search-history";
 import { 
   MapIcon, SunIcon, MoonIcon, MountainIcon, 
   LayersIcon, MapPinIcon, CrosshairIcon,
@@ -507,8 +507,7 @@ export default function SimpleMapView() {
                 {/* Location search */}
                 <div className="relative">
                   <LocationSearch 
-                    onResultsFound={handleLocationSearch}
-                    onDirectLocation={handleDirectLocation}
+                    onSearch={handleSearch}
                   />
                   
                   {/* Voice search button */}

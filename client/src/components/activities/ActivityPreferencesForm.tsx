@@ -14,8 +14,8 @@ import {
 } from "@/components/ui/form";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { useQueryClient } from "@tanstack/react-query";
+import { useActivityPreferences, useUpdateActivityPreferences } from "@/hooks/use-activity-preferences";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -73,23 +73,7 @@ export function ActivityPreferencesForm({ onSuccess }: ActivityPreferencesFormPr
   const queryClient = useQueryClient();
 
   // Fetch the user's existing preferences
-  const { data: preferences, isLoading } = useQuery({
-    queryKey: ['/api/activity-preferences'],
-    queryFn: async () => {
-      try {
-        const response = await fetch('/api/activity-preferences');
-        if (!response.ok) {
-          throw new Error(`Failed to fetch preferences: ${response.statusText}`);
-        }
-        const data = await response.json();
-        return data.preferences;
-      } catch (error) {
-        console.error("Error fetching activity preferences:", error);
-        throw error;
-      }
-    },
-    retry: 1,
-  });
+  const { data: preferences, isLoading } = useActivityPreferences();
 
   // Setup the form with react-hook-form
   const form = useForm<FormValues>({
@@ -115,37 +99,28 @@ export function ActivityPreferencesForm({ onSuccess }: ActivityPreferencesFormPr
   }, [preferences, form]);
 
   // Mutation for updating preferences
-  const { mutate, isPending } = useMutation({
-    mutationFn: async (data: FormValues) => {
-      return await apiRequest('/api/activity-preferences', {
-        method: 'PUT',
-        data,
-      });
-    },
-    onSuccess: () => {
-      toast({
-        title: "Preferanser oppdatert",
-        description: "Dine aktivitetspreferanser har blitt lagret.",
-      });
-      // Invalidate queries to refetch data
-      queryClient.invalidateQueries({ queryKey: ['/api/activity-preferences'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/recommendations'] });
-      
-      if (onSuccess) {
-        onSuccess();
-      }
-    },
-    onError: (error) => {
-      toast({
-        title: "Feil ved lagring",
-        description: `Det oppstod en feil ved lagring av preferanser: ${error}`,
-        variant: "destructive",
-      });
-    },
-  });
-
+  const { mutate, isPending } = useUpdateActivityPreferences();
+  
   const onSubmit = (data: FormValues) => {
-    mutate(data);
+    mutate(data, {
+      onSuccess: () => {
+        toast({
+          title: "Preferanser oppdatert",
+          description: "Dine aktivitetspreferanser har blitt lagret.",
+        });
+        
+        if (onSuccess) {
+          onSuccess();
+        }
+      },
+      onError: (error: any) => {
+        toast({
+          title: "Feil ved lagring",
+          description: `Det oppstod en feil ved lagring av preferanser: ${error}`,
+          variant: "destructive",
+        });
+      }
+    });
   };
 
   if (isLoading) {

@@ -1,198 +1,111 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "../lib/queryClient";
-import { SearchHistory, SearchPreferences } from "@shared/schema";
-import { useAuth } from "../contexts/AuthContext";
+import { useCallback } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import type { SearchHistory, InsertSearchHistory } from "@shared/schema";
 
-export interface SearchHistoryEntry {
-  query: string;
-  latitude?: string;
-  longitude?: string;
-  category?: string;
-  timestamp: Date;
-  resultCount?: number;
-}
-
-export interface SearchPreferencesData {
-  favoriteCategories: string[];
-  favoriteLocations: Array<{
-    name: string;
-    latitude: string;
-    longitude: string;
-    address?: string;
-  }>;
-  lastLocation?: { latitude: string; longitude: string };
-  radius: number;
-}
-
-/**
- * Hook to manage search history and suggestions
- */
-export function useSearchHistory() {
-  const queryClient = useQueryClient();
-  const { isAuthenticated } = useAuth();
-
-  // Get search history
-  const { 
-    data: searchHistory = [],
-    isLoading: isHistoryLoading,
-    error: historyError 
-  } = useQuery<SearchHistory[]>({
+export function useSearchHistory(limit: number = 10) {
+  return useQuery({
     queryKey: ['/api/search/history'],
-    enabled: isAuthenticated, // Only fetch if user is authenticated
+    queryFn: async () => {
+      const response = await apiRequest(`/api/search/history?limit=${limit}`);
+      return response.json();
+    },
+    staleTime: 1000 * 60, // 1 minute
+    retry: 1,
   });
+}
 
-  // Get search suggestions based on prefix
-  const getSuggestions = async (prefix: string): Promise<string[]> => {
-    if (!isAuthenticated || !prefix) return [];
-    try {
-      const result = await apiRequest(`/api/search/suggestions?prefix=${encodeURIComponent(prefix)}`);
-      return Array.isArray(result) ? result : [];
-    } catch (error) {
-      console.error("Error fetching suggestions:", error);
-      return [];
-    }
-  };
-
-  // Get search preferences
-  const { 
-    data: searchPreferences,
-    isLoading: isPreferencesLoading,
-    error: preferencesError 
-  } = useQuery<SearchPreferences>({
-    queryKey: ['/api/search/preferences'],
-    enabled: isAuthenticated,
-  });
-
-  // Save search history
-  const saveSearchMutation = useMutation({
-    mutationFn: async (searchData: {
-      query: string;
-      latitude?: string;
-      longitude?: string;
-      category?: string;
-      resultCount?: number;
-      successful?: boolean;
-    }) => {
-      return apiRequest('/api/search/history', {
-        method: 'POST',
-        data: searchData,
+export function useSaveSearchHistory() {
+  return useMutation({
+    mutationFn: async (data: Partial<InsertSearchHistory>) => {
+      const response = await apiRequest("/api/search/history", {
+        method: "POST",
+        data: data,
       });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/search/history'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/search/suggestions'] });
+    },
+  });
+}
+
+export function useUpdateSearchHistory() {
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: Partial<SearchHistory> }) => {
+      const response = await apiRequest(`/api/search/history/${id}`, {
+        method: "PATCH",
+        data,
+      });
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/search/history'] });
     },
   });
+}
 
-  // Update search preferences
-  const updatePreferencesMutation = useMutation({
-    mutationFn: async (preferences: Partial<SearchPreferencesData>) => {
-      return apiRequest('/api/search/preferences', {
+export function useSearchSuggestions(prefix: string = '') {
+  return useQuery({
+    queryKey: ['/api/search/suggestions', prefix],
+    queryFn: async () => {
+      if (!prefix || prefix.length < 2) return [];
+      
+      const response = await apiRequest(`/api/search/suggestions?prefix=${encodeURIComponent(prefix)}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch search suggestions');
+      }
+      return response.json();
+    },
+    staleTime: 1000 * 60 * 5, // 5 minutes
+    enabled: prefix.length >= 2,
+  });
+}
+
+export function useNearbySearchSuggestions() {
+  return useQuery({
+    queryKey: ['/api/search/near-me'],
+    queryFn: async () => {
+      try {
+        const response = await apiRequest('/api/search/near-me');
+        if (!response.ok) {
+          console.error("Error fetching nearby suggestions:", response.statusText);
+          return [];
+        }
+        return response.json();
+      } catch (error) {
+        console.error("Error fetching nearby suggestions:", error);
+        return [];
+      }
+    },
+    staleTime: 1000 * 60 * 10, // 10 minutes
+    retry: 1,
+  });
+}
+
+export function useSearchPreferences() {
+  return useQuery({
+    queryKey: ['/api/search/preferences'],
+    queryFn: async () => {
+      const response = await apiRequest('/api/search/preferences');
+      return response.json();
+    },
+    staleTime: 1000 * 60 * 15, // 15 minutes
+  });
+}
+
+export function useUpdateSearchPreferences() {
+  return useMutation({
+    mutationFn: async (data: Partial<SearchHistory>) => {
+      const response = await apiRequest('/api/search/preferences', {
         method: 'PUT',
-        data: preferences,
+        data,
       });
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/search/preferences'] });
     },
   });
-
-  // Save search to history
-  const saveSearch = (searchData: {
-    query: string;
-    latitude?: string;
-    longitude?: string;
-    category?: string;
-    resultCount?: number;
-    successful?: boolean;
-  }) => {
-    if (isAuthenticated) {
-      saveSearchMutation.mutate(searchData);
-    }
-  };
-
-  // Update user search preferences
-  const updatePreferences = (preferences: Partial<SearchPreferencesData>) => {
-    if (isAuthenticated) {
-      updatePreferencesMutation.mutate(preferences);
-    }
-  };
-
-  // Add a location to favorite locations
-  const addFavoriteLocation = (location: { 
-    name: string; 
-    latitude: string; 
-    longitude: string;
-    address?: string;
-  }) => {
-    if (!isAuthenticated || !searchPreferences) return;
-    
-    const favoriteLocations = [
-      ...(Array.isArray(searchPreferences.favoriteLocations) ? searchPreferences.favoriteLocations : []),
-      location
-    ];
-    
-    updatePreferencesMutation.mutate({ favoriteLocations });
-  };
-
-  // Add a category to favorite categories
-  const addFavoriteCategory = (category: string) => {
-    if (!isAuthenticated || !searchPreferences) return;
-    
-    // Only add if not already in the list
-    const favCategories = Array.isArray(searchPreferences.favoriteCategories) ? searchPreferences.favoriteCategories : [];
-    if (!favCategories.includes(category)) {
-      const favoriteCategories = [
-        ...favCategories,
-        category
-      ];
-      
-      updatePreferencesMutation.mutate({ favoriteCategories });
-    }
-  };
-
-  // Update last searched location
-  const updateLastLocation = (location: { latitude: string; longitude: string }) => {
-    if (isAuthenticated) {
-      updatePreferencesMutation.mutate({ lastLocation: location });
-    }
-  };
-
-  // Update a search history item
-  const updateSearchHistoryItemMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number, data: Partial<SearchHistory> }) => {
-      return apiRequest(`/api/search/history/${id}`, {
-        method: 'PATCH',
-        data,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/search/history'] });
-    },
-  });
-  
-  // Update a search history item with tags, notes, or favorite status
-  const updateSearchHistoryItem = (id: number, data: Partial<SearchHistory>) => {
-    if (isAuthenticated) {
-      updateSearchHistoryItemMutation.mutate({ id, data });
-    }
-  };
-
-  return {
-    searchHistory,
-    isHistoryLoading,
-    historyError,
-    searchPreferences,
-    isPreferencesLoading,
-    preferencesError,
-    saveSearch,
-    getSuggestions,
-    updatePreferences,
-    addFavoriteLocation,
-    addFavoriteCategory,
-    updateLastLocation,
-    updateSearchHistoryItem,
-    isSaving: saveSearchMutation.isPending,
-    isUpdatingPreferences: updatePreferencesMutation.isPending,
-    isUpdatingHistoryItem: updateSearchHistoryItemMutation.isPending,
-  };
 }
