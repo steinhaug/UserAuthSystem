@@ -33,7 +33,6 @@ export default function ReputationPage() {
     error: reputationError
   } = useQuery({
     queryKey: [`/api/reputation/${userId}`],
-    queryFn: ({ queryKey }) => apiRequest("GET", queryKey[0]),
   });
 
   // Get reputation events and types
@@ -43,7 +42,6 @@ export default function ReputationPage() {
     error: eventsError
   } = useQuery({
     queryKey: [`/api/reputation/${userId}/events`],
-    queryFn: ({ queryKey }) => apiRequest("GET", queryKey[0]),
   });
 
   // Get trust connections
@@ -53,13 +51,15 @@ export default function ReputationPage() {
     error: trustError
   } = useQuery({
     queryKey: [`/api/trust/${userId}`],
-    queryFn: ({ queryKey }) => apiRequest("GET", queryKey[0]),
   });
 
   // Handle add trust connection
   const handleAddTrust = async (userId: string, level: number, notes?: string) => {
     try {
-      await apiRequest("POST", "/api/trust", { trustedId: userId, level, notes });
+      await apiRequest(`/api/trust`, { 
+        method: "POST", 
+        data: { trustedId: userId, level, notes } 
+      });
       // Invalidate trust connections cache to refresh the data
       queryClient.invalidateQueries({ queryKey: [`/api/trust/${userId}`] });
       return Promise.resolve();
@@ -77,7 +77,10 @@ export default function ReputationPage() {
   // Handle update trust connection
   const handleUpdateTrust = async (userId: string, level: number, notes?: string) => {
     try {
-      await apiRequest("PATCH", `/api/trust/${userId}`, { level, notes });
+      await apiRequest(`/api/trust/${userId}`, {
+        method: "PATCH", 
+        data: { level, notes }
+      });
       // Invalidate trust connections cache to refresh the data
       queryClient.invalidateQueries({ queryKey: [`/api/trust/${userId}`] });
       return Promise.resolve();
@@ -95,7 +98,9 @@ export default function ReputationPage() {
   // Handle remove trust connection
   const handleRemoveTrust = async (userId: string) => {
     try {
-      await apiRequest("DELETE", `/api/trust/${userId}`);
+      await apiRequest(`/api/trust/${userId}`, { 
+        method: "DELETE" 
+      });
       // Invalidate trust connections cache to refresh the data
       queryClient.invalidateQueries({ queryKey: [`/api/trust/${userId}`] });
       return Promise.resolve();
@@ -113,8 +118,8 @@ export default function ReputationPage() {
   // Search users (for trust connections)
   const searchUsers = async (query: string) => {
     try {
-      const res = await apiRequest("GET", `/api/users/search?q=${encodeURIComponent(query)}`);
-      return res.users || [];
+      const res = await apiRequest(`/api/users/search?q=${encodeURIComponent(query)}`);
+      return res?.users || [];
     } catch (error) {
       console.error("Error searching users:", error);
       toast({
@@ -405,7 +410,10 @@ export default function ReputationPage() {
                     context="activity"
                     onSubmitRating={async (rating) => {
                       try {
-                        await apiRequest("POST", "/api/ratings", rating);
+                        await apiRequest("/api/ratings", {
+                          method: "POST",
+                          data: rating
+                        });
                         toast({
                           title: "Vurdering sendt",
                           description: "Din vurdering har blitt sendt",
