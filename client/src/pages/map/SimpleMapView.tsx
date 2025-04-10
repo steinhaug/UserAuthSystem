@@ -574,7 +574,7 @@ export default function SimpleMapView() {
                       setShowNearMeNow(newValue as 'show' | 'hide');
                       localStorage.setItem('nearMeNowPreference', newValue);
                     }}
-                    className={`absolute -left-8 top-8 transform -rotate-90 origin-top-right bg-white/90 text-xs font-medium px-2 py-1 rounded-t-lg shadow-md ${
+                    className={`absolute -right-8 top-8 transform rotate-90 origin-top-left bg-white/90 text-xs font-medium px-2 py-1 rounded-t-lg shadow-md ${
                       showNearMeNow === 'show' ? 'text-primary' : 'text-gray-500'
                     }`}
                     title={showNearMeNow === 'show' ? 'Skjul nærhetspanel' : 'Vis nærhetspanel'}
