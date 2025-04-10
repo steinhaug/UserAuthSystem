@@ -18,6 +18,15 @@ interface SmartSuggestion {
   source: 'history' | 'pattern' | 'trending' | 'time' | 'location' | 'preferences';
 }
 
+interface UserPreferences {
+  favoriteCategories?: string[];
+  lastLocation?: {
+    latitude: number;
+    longitude: number;
+  };
+  [key: string]: any;
+}
+
 // Utility to get time of day
 const getTimeOfDay = (): string => {
   const hour = new Date().getHours();
@@ -229,7 +238,7 @@ export const identifySearchPatterns = (history: SearchHistory[]): SearchPattern[
 // Generate smart search suggestions
 export const generateSmartSuggestions = (
   history: SearchHistory[],
-  userPreferences?: any,
+  userPreferences?: UserPreferences,
   limit: number = 10
 ): SmartSuggestion[] => {
   if (!history || history.length === 0) return [];
@@ -312,9 +321,9 @@ export const generateSmartSuggestions = (
   
   // Add category-based suggestions
   if (userPreferences?.favoriteCategories?.length > 0) {
-    const preferredCategories = userPreferences.favoriteCategories;
+    const preferredCategories = userPreferences.favoriteCategories as string[];
     
-    preferredCategories.forEach(category => {
+    preferredCategories.forEach((category: string) => {
       const categoryPatterns = patterns
         .filter(pattern => pattern.categories[category])
         .sort((a, b) => 
@@ -336,7 +345,7 @@ export const generateSmartSuggestions = (
               query: bestMatch.query,
               score: 80 - suggestions.length,
               reason: `Basert på dine interesser`,
-              category: category as string,
+              category,
               source: 'preferences'
             });
           }

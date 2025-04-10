@@ -245,13 +245,14 @@ export function PersonalizedSearchSuggestions({
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {displaySuggestions.map(suggestion => 
+            {displaySuggestions.map((suggestion: string) => 
               renderSuggestionButton(
                 suggestion,
                 activeTab === 'trending' ? <TrendingUp className="h-4 w-4 mr-2 text-primary" /> :
                 activeTab === 'time' ? <Clock className="h-4 w-4 mr-2 text-primary" /> :
                 activeTab === 'favorites' ? <Star className="h-4 w-4 mr-2 text-primary" /> :
                 activeTab === 'preferences' ? <Brain className="h-4 w-4 mr-2 text-primary" /> :
+                activeTab === 'smart' ? <Activity className="h-4 w-4 mr-2 text-primary" /> :
                 <Search className="h-4 w-4 mr-2 text-gray-400" />
               )
             )}
