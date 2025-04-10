@@ -105,22 +105,47 @@ Comemingel offers several configuration options that can be customized:
 
 ### Environment Variables
 
-Key environment variables that control the application's behavior:
+The application requires the following environment variables in a `.env` file:
 
-- `VITE_FIREBASE_API_KEY`: Firebase API key for authentication
-- `VITE_FIREBASE_PROJECT_ID`: Firebase project identifier
-- `VITE_FIREBASE_APP_ID`: Firebase application ID
-- `VITE_MAPBOX_TOKEN`: Mapbox access token for maps
-- `DATABASE_URL`: PostgreSQL connection string
-- `OPENAI_API_KEY`: OpenAI API key for intelligent features
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `DATABASE_URL` | PostgreSQL connection string in the format: `postgresql://username:password@hostname:port/database` | Yes |
+| `VITE_FIREBASE_API_KEY` | Firebase API key for authentication (from Firebase console > Project settings > Web app) | Yes |
+| `VITE_FIREBASE_PROJECT_ID` | Firebase project identifier | Yes |
+| `VITE_FIREBASE_APP_ID` | Firebase application ID | Yes |
+| `VITE_MAPBOX_TOKEN` | Mapbox access token for maps (from mapbox.com) | Yes |
+| `OPENAI_API_KEY` | OpenAI API key for intelligent features | Optional |
+| `SESSION_SECRET` | Secret string for session encryption | Yes |
+
+See the `.env.example` file in the repository for a template with additional optional settings.
+
+### Firebase Configuration
+
+For Firebase authentication to work properly:
+
+1. Create a project in the [Firebase console](https://console.firebase.google.com/)
+2. Enable the Authentication service and set up the Google sign-in method
+3. Add your application domain to the authorized domains list
+4. Copy the configuration details from Project settings > Your apps > Web app
+
+### Mapbox Configuration
+
+For location features to work:
+
+1. Create an account at [Mapbox](https://www.mapbox.com/)
+2. Generate an access token with the necessary scopes
+3. Add the token to your environment variables
 
 ### Development Mode Settings
 
-In development mode, you can configure:
+In development mode, you can:
 
-- **Authentication Mode**: Toggle between mock and real authentication using the button in the bottom-right corner of the application.
-- **Mock Data**: Development mode provides realistic mock data for testing features without external services.
-- **Dev Mode Toggle**: Set `localStorage.setItem('useRealAuth', 'true')` to use real Firebase authentication in development.
+- **Toggle Authentication**: Switch between mock and real authentication using the button in the bottom-right corner
+- **Mock Data**: Development mode automatically provides realistic test data for all features
+- **Authentication Persistence**: Control authentication persistence by modifying the `FIREBASE_AUTH_PERSISTENCE` constant in `client/src/lib/constants.ts`
+- **Local Storage Settings**: 
+  - `localStorage.setItem('useRealAuth', 'true')` - Force real Firebase authentication
+  - `localStorage.setItem('devUser', JSON.stringify({...}))` - Customize the mock user
 
 ### Feature Flags
 
@@ -181,10 +206,10 @@ Customize your experience with these feature toggles:
 
 ### Installation
 
-1. Clone the repository:
+1. Clone the repository or set up the Replit project:
    ```
-   git clone https://github.com/yourusername/comemingel.git
-   cd comemingel
+   git clone https://github.com/comemingel/app.git
+   cd app
    ```
 
 2. Install dependencies:
@@ -193,7 +218,7 @@ Customize your experience with these feature toggles:
    ```
 
 3. Set up environment variables:
-   Create a `.env` file in the root directory with the required environment variables.
+   Create a `.env` file in the root directory with the required environment variables (see below for an example).
 
 4. Initialize the database:
    ```
@@ -204,6 +229,29 @@ Customize your experience with these feature toggles:
    ```
    npm run dev
    ```
+
+### Environment Variables
+
+Create a `.env` file in the root directory with the following variables:
+
+```
+# Database
+DATABASE_URL=postgresql://username:password@hostname:port/database
+
+# Firebase Configuration
+VITE_FIREBASE_API_KEY=your-firebase-api-key
+VITE_FIREBASE_PROJECT_ID=your-firebase-project-id
+VITE_FIREBASE_APP_ID=your-firebase-app-id
+
+# Mapbox Configuration
+VITE_MAPBOX_TOKEN=your-mapbox-token
+
+# OpenAI Configuration (optional for enhanced features)
+OPENAI_API_KEY=your-openai-api-key
+
+# Session Secret (for auth)
+SESSION_SECRET=a-secure-random-string
+```
 
 ### Deployment
 
@@ -218,6 +266,13 @@ The application can be deployed to any platform supporting Node.js applications:
    ```
    npm start
    ```
+
+### Development Mode
+
+When running in development mode, you can:
+
+1. Use the toggle button in the bottom-right corner to switch between mock and real authentication
+2. Access development-only features by setting `localStorage.setItem('useRealAuth', 'true')` in your browser console
 
 ## 🤝 Contributing
 
