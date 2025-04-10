@@ -3,6 +3,10 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 // Import Firebase Admin SDK
 import './firebase-admin';
+// Import AI-related routes
+import openaiRouter from "./openai";
+import geminiRouter from "./gemini";
+import anthropicRouter from "./anthropic";
 
 const app = express();
 app.use(express.json());
