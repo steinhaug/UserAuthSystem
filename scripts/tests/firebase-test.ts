@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
-import { getAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -63,7 +63,7 @@ async function testFirebase() {
     if (process.env.ENABLE_APPCHECK === 'true') {
       console.log('\nInitializing Firebase AppCheck...');
       try {
-        const appCheck = getAppCheck(app, {
+        const appCheck = initializeAppCheck(app, {
           provider: new ReCaptchaV3Provider('recaptcha-v3-site-key'),
           isTokenAutoRefreshEnabled: true
         });

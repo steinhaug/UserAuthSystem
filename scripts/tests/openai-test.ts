@@ -46,7 +46,7 @@ async function testOpenAI() {
       model: "gpt-4o", // The newest OpenAI model is gpt-4o which was released May 13, 2024
       messages: [{ role: "user", content: testPrompt }],
       max_tokens: 50
-    });
+    }) || null;
     
     if (response && response.choices && response.choices.length > 0) {
       console.log('\x1b[32m✓ OpenAI API request successful\x1b[0m');

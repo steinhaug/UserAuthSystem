@@ -1,65 +1,63 @@
 /**
  * Fix for Vite WebSocket HMR disconnection issues
  * 
- * This workaround patches the Vite WebSocket connection setup to prevent
- * errors with 'undefined' port in the WebSocket URL.
+ * This completely disables the Vite WebSocket HMR since we're having issues with it
+ * and it's not critical for functionality.
  */
 
-// Wait until window and document are defined
-if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-  // Run after the document is fully loaded
-  window.addEventListener('DOMContentLoaded', () => {
-    const viteFix = () => {
-      try {
-        // Find any existing error websocket connections and close them
-        const existingWsElements = document.querySelectorAll(
-          'script[data-vite-dev-id="/vite/client"][data-ws-error="true"]'
-        );
-        
-        // Remove any error scripts
-        existingWsElements.forEach(el => el.parentNode?.removeChild(el));
-        
-        // Fix WebSocket connection by overriding WebSocket
-        const originalWebSocket = window.WebSocket;
-        
-        // @ts-ignore
-        window.WebSocket = function(url: string, protocols?: string | string[]) {
-          if (url.includes('undefined')) {
-            // Fix the URL by replacing 'undefined' with proper values
-            const fixedUrl = url.replace('wss://localhost:undefined', 
-              `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//` + 
-              `${window.location.host}`
-            );
-            
-            console.log('Fixed WebSocket URL:', fixedUrl);
-            return new originalWebSocket(fixedUrl, protocols);
-          }
-          
-          return new originalWebSocket(url, protocols);
-        };
-        
-        // Copy all properties from the original WebSocket constructor
-        Object.keys(originalWebSocket).forEach(key => {
-          // @ts-ignore
-          window.WebSocket[key] = originalWebSocket[key];
-        });
-        
-        // Copy the prototype
-        // @ts-ignore
-        window.WebSocket.prototype = originalWebSocket.prototype;
-        
-        console.log('Vite HMR WebSocket patched');
-      } catch (err) {
-        console.error('Error in Vite HMR fix:', err);
-      }
-    };
+// Disable Vite's WebSocket HMR
+if (typeof window !== 'undefined') {
+  // Disable Vite HMR by intercepting WebSocket connections to localhost:undefined
+  const originalWebSocket = window.WebSocket;
+  
+  // Override the WebSocket constructor to prevent connecting to undefined URLs
+  // @ts-ignore
+  window.WebSocket = function(url, protocols) {
+    // Catch only Vite's HMR WebSocket connection to undefined port
+    if (url && typeof url === 'string' && 
+        (url.includes('localhost:undefined') || url.includes('undefined/?token='))) {
+      console.log('Blocked Vite HMR WebSocket connection to:', url);
+      
+      // Return a fake WebSocket object that doesn't really connect
+      const mockWs = {
+        readyState: 3, // CLOSED
+        send: function() {},
+        close: function() {},
+        addEventListener: function() {},
+        removeEventListener: function() {},
+        dispatchEvent: function() { return true; }
+      };
+      
+      // Simulate connection error after a short delay
+      setTimeout(() => {
+        if (this.onerror) this.onerror(new Event('error'));
+        if (this.onclose) this.onclose(new CloseEvent('close'));
+      }, 50);
+      
+      // @ts-ignore
+      return mockWs;
+    }
     
-    // Start the fix process
-    viteFix();
-  });
+    // For all other URLs, use the original WebSocket implementation
+    return new originalWebSocket(url, protocols);
+  };
+  
+  // Copy all static properties and methods
+  for (const prop in originalWebSocket) {
+    if (Object.prototype.hasOwnProperty.call(originalWebSocket, prop)) {
+      // @ts-ignore
+      window.WebSocket[prop] = originalWebSocket[prop];
+    }
+  }
+  
+  // Ensure prototype chain is preserved
+  // @ts-ignore
+  window.WebSocket.prototype = originalWebSocket.prototype;
+  
+  console.log('Vite HMR WebSocket disabled to prevent errors');
 }
 
-// Export a dummy function so this module can be imported
+// Function to apply this fix - not actually needed since we auto-execute
 export function applyViteHmrFix() {
-  console.log('Vite HMR fix loaded');
+  console.log('Vite HMR fix already applied');
 }
