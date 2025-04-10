@@ -83,7 +83,7 @@ export function useContextualHints(options?: UseContextualHintsOptions | number)
   const { userProfile, isLoading } = useAuth();
   
   // Handle backward compatibility
-  const maxShownHints = typeof options === 'number' ? options : options?.maxShownHints || 0; // Reduserer til 0 for å deaktivere hint
+  const maxShownHints = 0; // Satt til 0 for å deaktivere alle hint
   const forceReset = typeof options === 'object' ? options?.forceReset : false;
 
   // State for active hints

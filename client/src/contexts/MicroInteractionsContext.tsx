@@ -56,7 +56,8 @@ export const MicroInteractionsProvider: React.FC<{ children: ReactNode }> = ({ c
       localStorage.setItem(`userPoints_${userProfile.firebaseId}`, newTotal.toString());
     }
     
-    // Only show toast for significant point awards (10+ points)
+    // Deaktiverer visning av toast for poeng
+    /*
     if (points >= 10) {
       toast({
         title: `+${points} poeng!`,
@@ -65,6 +66,7 @@ export const MicroInteractionsProvider: React.FC<{ children: ReactNode }> = ({ c
         className: 'points-reward-toast',
       });
     }
+    */
   };
   
   // Get current user points
