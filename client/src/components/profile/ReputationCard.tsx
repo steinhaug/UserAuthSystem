@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { Shield, Award, Clock, Star, ThumbsUp, Users, Zap } from 'lucide-react';
 import { DEVELOPMENT_MODE } from '@/lib/constants';
+import { cn } from '@/lib/utils';
 
 // These types would normally come from your API but for development we'll define them here
 interface Reputation {
@@ -231,7 +232,9 @@ export default function ReputationCard({ userId }: ReputationCardProps) {
                     {reputation.overallScore}/100
                   </span>
                 </div>
-                <Progress value={reputation.overallScore} className="h-2" indicatorClassName={getProgressColor(reputation.overallScore)} />
+                <Progress value={reputation.overallScore} className="h-2">
+                  <div className={cn("h-full", getProgressColor(reputation.overallScore))} style={{ width: `${reputation.overallScore}%` }} />
+                </Progress>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
@@ -241,11 +244,9 @@ export default function ReputationCard({ userId }: ReputationCardProps) {
                     <span className="text-sm font-medium">Reliability</span>
                   </div>
                   <div className="flex justify-between">
-                    <Progress 
-                      value={reputation.reliabilityScore} 
-                      className="h-1.5 w-3/4" 
-                      indicatorClassName={getProgressColor(reputation.reliabilityScore)} 
-                    />
+                    <Progress value={reputation.reliabilityScore} className="h-1.5 w-3/4">
+                      <div className={cn("h-full", getProgressColor(reputation.reliabilityScore))} style={{ width: `${reputation.reliabilityScore}%` }} />
+                    </Progress>
                     <span className={`text-xs font-semibold ${getScoreColor(reputation.reliabilityScore)}`}>
                       {reputation.reliabilityScore}
                     </span>
@@ -258,11 +259,9 @@ export default function ReputationCard({ userId }: ReputationCardProps) {
                     <span className="text-sm font-medium">Safety</span>
                   </div>
                   <div className="flex justify-between">
-                    <Progress 
-                      value={reputation.safetyScore} 
-                      className="h-1.5 w-3/4" 
-                      indicatorClassName={getProgressColor(reputation.safetyScore)} 
-                    />
+                    <Progress value={reputation.safetyScore} className="h-1.5 w-3/4">
+                      <div className={cn("h-full", getProgressColor(reputation.safetyScore))} style={{ width: `${reputation.safetyScore}%` }} />
+                    </Progress>
                     <span className={`text-xs font-semibold ${getScoreColor(reputation.safetyScore)}`}>
                       {reputation.safetyScore}
                     </span>
@@ -275,11 +274,9 @@ export default function ReputationCard({ userId }: ReputationCardProps) {
                     <span className="text-sm font-medium">Community</span>
                   </div>
                   <div className="flex justify-between">
-                    <Progress 
-                      value={reputation.communityScore} 
-                      className="h-1.5 w-3/4" 
-                      indicatorClassName={getProgressColor(reputation.communityScore)} 
-                    />
+                    <Progress value={reputation.communityScore} className="h-1.5 w-3/4">
+                      <div className={cn("h-full", getProgressColor(reputation.communityScore))} style={{ width: `${reputation.communityScore}%` }} />
+                    </Progress>
                     <span className={`text-xs font-semibold ${getScoreColor(reputation.communityScore)}`}>
                       {reputation.communityScore}
                     </span>
