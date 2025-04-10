@@ -134,6 +134,10 @@ export interface IStorage {
   getTrustConnections(userId: string, asTrusted?: boolean): Promise<TrustConnection[]>;
   createTrustConnection(connection: InsertTrustConnection): Promise<TrustConnection>;
   updateTrustConnection(trusterId: string, trustedId: string, level: number, notes?: string): Promise<TrustConnection | undefined>;
+  deleteTrustConnection(id: number): Promise<void>;
+  
+  // User Search
+  searchUsers(query: string, limit?: number): Promise<User[]>;
 }
 
 import { db, pool } from "./db";
@@ -1239,6 +1243,29 @@ export class DatabaseStorage implements IStorage {
     }
     
     return updatedConnection;
+  }
+
+  async deleteTrustConnection(id: number): Promise<void> {
+    await db
+      .delete(trustConnections)
+      .where(eq(trustConnections.id, id));
+  }
+  
+  async searchUsers(query: string, limit: number = 10): Promise<User[]> {
+    // Search by username, displayName, or email
+    const lowercaseQuery = `%${query.toLowerCase()}%`;
+    
+    return db
+      .select()
+      .from(users)
+      .where(
+        or(
+          sql`LOWER(${users.username}) LIKE ${lowercaseQuery}`,
+          sql`LOWER(${users.displayName}) LIKE ${lowercaseQuery}`,
+          sql`LOWER(${users.email}) LIKE ${lowercaseQuery}`
+        )
+      )
+      .limit(limit);
   }
 }
 

@@ -38,15 +38,6 @@ export enum ApiErrorCode {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Serve public files from uploads directory
-  app.get("/uploads/:fileId", (req, res, next) => {
-    const filepath = path.join(__dirname, "../uploads", req.params.fileId);
-    if (path.extname(filepath)) {
-      return res.sendFile(filepath);
-    }
-    next();
-  });
-  
   // Authentication middleware with extended Request type
   interface AuthenticatedRequest extends Request {
     user: {
@@ -69,8 +60,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   function sendErrorResponse(
     res: Response, 
     message: string, 
-    statusCode: string, 
-    errorCode: ApiErrorCode,
+    statusCode: number = 400,
+    errorCode: ApiErrorCode = ApiErrorCode.VALIDATION_ERROR,
     details?: any
   ) {
     const response = {
@@ -81,7 +72,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         details
       }
     };
-    res.status(parseInt(statusCode)).json(response);
+    res.status(statusCode).json(response);
   }
 
   function withAuth(handler: AuthenticatedHandler): RequestHandler {
@@ -109,7 +100,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return sendErrorResponse(
         res,
         "No authentication token provided",
-        "401",
+        401,
         ApiErrorCode.UNAUTHORIZED
       );
     }
@@ -123,11 +114,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return sendErrorResponse(
         res,
         "Invalid authentication token",
-        "401",
+        401,
         ApiErrorCode.UNAUTHORIZED
       );
     }
   };
+
+  // Define a function for logging with consistent format
+  function log(message: string, level: 'info' | 'warn' | 'error' = 'info') {
+    const timestamp = new Date().toISOString();
+    serverLog(message, 'routes');
+  }
 
   // Helper to handle database errors with automatic retries
   async function handleApiDatabaseError<T>(
@@ -154,25 +151,252 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return sendErrorResponse(
         res,
         "Database constraint violation. The operation cannot be completed.",
-        "409",
+        409,
         ApiErrorCode.CONFLICT
       );
     } else {
       return sendErrorResponse(
         res,
         "A database error occurred. Please try again later.",
-        "500",
+        500,
         ApiErrorCode.INTERNAL_SERVER_ERROR,
         { message: error.message }
       );
     }
   }
+  
+  // Reputation system routes
+  
+  // Get reputation profile for a user
+  app.get('/api/reputation/:userId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { userId } = req.params;
+      const reputation = await storage.getUserReputation(userId);
+      
+      if (!reputation) {
+        return sendErrorResponse(res, "User reputation not found", ApiErrorCode.NOT_FOUND);
+      }
+      
+      res.json({ reputation });
+    } catch (error) {
+      log(`Error getting reputation: ${error}`, 'error');
+      return sendErrorResponse(res, "Failed to get reputation data", ApiErrorCode.INTERNAL_SERVER_ERROR);
+    }
+  });
 
-  // Define a function for logging with consistent format
-  function log(message: string, level: 'info' | 'warn' | 'error' = 'info') {
-    const timestamp = new Date().toISOString();
-    serverLog(message, 'routes');
-  }
+  // Get reputation events for a user
+  app.get('/api/reputation/:userId/events', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { userId } = req.params;
+      const limit = req.query.limit ? Number(req.query.limit) : 20;
+      
+      // Only allow users to view their own reputation events
+      if (userId !== req.user.uid) {
+        return sendErrorResponse(res, "Unauthorized access to reputation events", ApiErrorCode.UNAUTHORIZED);
+      }
+      
+      const events = await storage.getReputationEvents(userId, limit);
+      const eventTypes = await storage.getReputationEventTypes();
+      
+      res.json({ events, eventTypes });
+    } catch (error) {
+      log(`Error getting reputation events: ${error}`, 'error');
+      return sendErrorResponse(res, "Failed to get reputation events", ApiErrorCode.INTERNAL_SERVER_ERROR);
+    }
+  });
+
+  // Get trust connections for a user
+  app.get('/api/trust/:userId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { userId } = req.params;
+      
+      // Get trust connections
+      const trusted = await storage.getTrustConnections(userId, false);
+      const trustedBy = await storage.getTrustConnections(userId, true);
+      
+      res.json({ trusted, trustedBy });
+    } catch (error) {
+      log(`Error getting trust connections: ${error}`, 'error');
+      return sendErrorResponse(res, "Failed to get trust connections", ApiErrorCode.INTERNAL_SERVER_ERROR);
+    }
+  });
+
+  // Create new trust connection
+  app.post('/api/trust', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { trustedId, level, notes } = req.body;
+      
+      if (!trustedId || !level) {
+        return sendErrorResponse(res, "Missing required fields", ApiErrorCode.VALIDATION_ERROR);
+      }
+      
+      // Make sure the user is not trying to trust themselves
+      if (trustedId === req.user.uid) {
+        return sendErrorResponse(res, "Cannot create trust connection with yourself", ApiErrorCode.VALIDATION_ERROR);
+      }
+      
+      // Check if a connection already exists
+      const existingConnections = await storage.getTrustConnections(req.user.uid);
+      const alreadyExists = existingConnections.some(conn => conn.trustedId === trustedId);
+      
+      if (alreadyExists) {
+        return sendErrorResponse(res, "Trust connection already exists", ApiErrorCode.CONFLICT);
+      }
+      
+      // Create the trust connection
+      const connection = await storage.createTrustConnection({
+        trusterId: req.user.uid,
+        trustedId,
+        level,
+        notes
+      });
+      
+      res.status(201).json({ connection });
+    } catch (error) {
+      log(`Error creating trust connection: ${error}`, 'error');
+      return sendErrorResponse(res, "Failed to create trust connection", ApiErrorCode.INTERNAL_SERVER_ERROR);
+    }
+  });
+
+  // Update trust connection
+  app.patch('/api/trust/:trustedId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { trustedId } = req.params;
+      const { level, notes } = req.body;
+      
+      if (!level) {
+        return sendErrorResponse(res, "Missing required fields", ApiErrorCode.VALIDATION_ERROR);
+      }
+      
+      // Update the trust connection
+      const connection = await storage.updateTrustConnection(
+        req.user.uid,
+        trustedId,
+        level,
+        notes
+      );
+      
+      if (!connection) {
+        return sendErrorResponse(res, "Trust connection not found", ApiErrorCode.NOT_FOUND);
+      }
+      
+      res.json({ connection });
+    } catch (error) {
+      log(`Error updating trust connection: ${error}`, 'error');
+      return sendErrorResponse(res, "Failed to update trust connection", ApiErrorCode.INTERNAL_SERVER_ERROR);
+    }
+  });
+
+  // Delete trust connection
+  app.delete('/api/trust/:trustedId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { trustedId } = req.params;
+      
+      // Get trust connections for the user
+      const connections = await storage.getTrustConnections(req.user.uid);
+      
+      // Find the connection to delete
+      const connectionToDelete = connections.find(conn => conn.trustedId === trustedId);
+      
+      if (!connectionToDelete) {
+        return sendErrorResponse(res, "Trust connection not found", ApiErrorCode.NOT_FOUND);
+      }
+      
+      // Delete the trust connection
+      await storage.deleteTrustConnection(connectionToDelete.id);
+      
+      res.status(204).send();
+    } catch (error) {
+      log(`Error deleting trust connection: ${error}`, 'error');
+      return sendErrorResponse(res, "Failed to delete trust connection", ApiErrorCode.INTERNAL_SERVER_ERROR);
+    }
+  });
+
+  // Create user rating
+  app.post('/api/ratings', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { receiverId, score, comment, context, referenceId, isAnonymous } = req.body;
+      
+      if (!receiverId || !score || !context) {
+        return sendErrorResponse(res, "Missing required fields", ApiErrorCode.VALIDATION_ERROR);
+      }
+      
+      // Make sure the user is not trying to rate themselves
+      if (receiverId === req.user.uid) {
+        return sendErrorResponse(res, "Cannot rate yourself", ApiErrorCode.VALIDATION_ERROR);
+      }
+      
+      // Create the rating
+      const rating = await storage.createUserRating({
+        giverId: req.user.uid,
+        receiverId,
+        score,
+        comment,
+        context,
+        referenceId,
+        isAnonymous: isAnonymous || false
+      });
+      
+      res.status(201).json({ rating });
+    } catch (error) {
+      log(`Error creating user rating: ${error}`, 'error');
+      return sendErrorResponse(res, "Failed to create user rating", ApiErrorCode.INTERNAL_SERVER_ERROR);
+    }
+  });
+
+  // Get ratings for a user
+  app.get('/api/ratings/:userId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { userId } = req.params;
+      const asReceiver = req.query.asReceiver !== 'false'; // Default to true
+      
+      const ratings = await storage.getUserRatings(userId, asReceiver);
+      
+      // If requesting received ratings, exclude anonymous ratings unless it's the user's own profile
+      const filteredRatings = asReceiver && userId !== req.user.uid
+        ? ratings.filter(rating => !rating.isAnonymous)
+        : ratings;
+      
+      res.json({ ratings: filteredRatings });
+    } catch (error) {
+      log(`Error getting user ratings: ${error}`, 'error');
+      return sendErrorResponse(res, "Failed to get user ratings", ApiErrorCode.INTERNAL_SERVER_ERROR);
+    }
+  });
+
+  // Search users endpoint (for trust connections)
+  app.get('/api/users/search', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const query = req.query.q as string;
+      
+      if (!query || query.length < 2) {
+        return res.json({ users: [] });
+      }
+      
+      // Search for users
+      const users = await storage.searchUsers(query, 10);
+      
+      // Exclude the current user from results
+      const filteredUsers = users.filter(user => user.firebaseId !== req.user.uid);
+      
+      res.json({ users: filteredUsers });
+    } catch (error) {
+      log(`Error searching users: ${error}`, 'error');
+      return sendErrorResponse(res, "Failed to search users", ApiErrorCode.INTERNAL_SERVER_ERROR);
+    }
+  });
+
+  
+  // Serve public files from uploads directory
+  app.get("/uploads/:fileId", (req, res, next) => {
+    const filepath = path.join(__dirname, "../uploads", req.params.fileId);
+    if (path.extname(filepath)) {
+      return res.sendFile(filepath);
+    }
+    next();
+  });
+  
+
 
   // Mount the OpenAI router - commented out for now
   // app.use('/api/openai', openaiRouter);

@@ -1,43 +1,43 @@
-import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
-import { createServer, type Server } from "http";
-import { storage } from "./storage";
-import admin from "firebase-admin";
-import { DatabaseError } from "./utils/errorHandler";
+import { Express, Request, Response, NextFunction, RequestHandler } from "express";
+import { createServer, Server } from "http";
+import { WebSocketServer, WebSocket } from "ws";
+import * as admin from "firebase-admin";
+import * as firebaseAdmin from "firebase-admin";
+import { createHash, timingSafeEqual } from "crypto";
+import multer from "multer";
+import path from "path";
+import fetch from "node-fetch";
 import { 
-  sendErrorResponse, 
-  handleApiDatabaseError, 
-  ApiErrorCode,
-  validateRequest
-} from "./utils/apiErrorHandler";
-import { log } from "./vite";
-import { WebSocketServer, WebSocket } from 'ws';
-import path from 'path';
-import openaiRouter from './openai';
-import { upload, getFileUrl, generateThumbnail, getFileType } from './upload';
-import fs from 'fs';
+  User, Activity, InsertActivity, ActivityParticipant,
+  insertSearchHistorySchema, insertSearchPreferencesSchema 
+} from "@shared/schema";
+import { storage } from "./storage";
+import { log as serverLog } from "./vite";
+import { upload, getFileUrl, generateThumbnail } from "./upload";
+// import { openaiRouter } from "./openai";
 
-// Initialize Firebase Admin
+// Initialize Firebase Admin SDK
 try {
-  // Check if Firebase Admin has already been initialized
-  if (!admin.apps || admin.apps.length === 0) {
-    admin.initializeApp({
+  if (firebaseAdmin.apps && firebaseAdmin.apps.length === 0) {
+    firebaseAdmin.initializeApp({
       projectId: "comemingel"
     });
     console.log("Firebase Admin initialized successfully");
   }
 } catch (error) {
-  console.error("Firebase admin initialization error:", error);
+  console.error("Firebase Admin initialization error:", error);
+}
+
+export enum ApiErrorCode {
+  VALIDATION_ERROR = "validation_error",
+  NOT_FOUND = "not_found",
+  CONFLICT = "conflict",
+  INTERNAL_SERVER_ERROR = "internal_server_error",
+  UNAUTHORIZED = "unauthorized",
+  FORBIDDEN = "forbidden"
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Serve uploaded files
-  app.use('/uploads', (req, res, next) => {
-    const filepath = path.join(__dirname, '..', req.path);
-    if (fs.existsSync(filepath) && fs.statSync(filepath).isFile()) {
-      return res.sendFile(filepath);
-    }
-    next();
-  });
   // Authentication middleware with extended Request type
   interface AuthenticatedRequest extends Request {
     user: {
@@ -48,974 +48,810 @@ export async function registerRoutes(app: Express): Promise<Server> {
       [key: string]: any; // For andre Firebase auth egenskaper
     };
   }
-  
+
   // Type for Express handler that expects an authenticated request
   type AuthenticatedHandler = (
     req: AuthenticatedRequest,
     res: Response,
     next: NextFunction
   ) => Promise<any> | any;
-  
-  // Fix Express typings by making a more robust wrapper function
+
+  // Helper to send standardized error responses
+  function sendErrorResponse(
+    res: Response, 
+    message: string, 
+    statusCode: number = 400,
+    errorCode: ApiErrorCode = ApiErrorCode.VALIDATION_ERROR,
+    details?: any
+  ) {
+    const response = {
+      success: false,
+      error: {
+        message,
+        code: errorCode,
+        details
+      }
+    };
+    res.status(statusCode).json(response);
+  }
+
   function withAuth(handler: AuthenticatedHandler): RequestHandler {
     return function(req: Request, res: Response, next: NextFunction) {
-      // This type assertion is safe because authenticateUser middleware ensures 
-      // the user property is added to the request object
-      return handler(req as AuthenticatedRequest, res, next);
+      const authenticatedReq = req as AuthenticatedRequest;
+      return handler(authenticatedReq, res, next);
     };
-  };
-  
-  const authenticateUser = async (
-    req: Request, 
-    res: Response, 
-    next: NextFunction
-  ) => {
-    try {
-      // Check for a development mode flag in headers
-      const devModeHeader = req.headers['x-dev-mode'];
-      const isDevelopmentMode = devModeHeader === 'true';
-      
-      if (isDevelopmentMode) {
-        // In development mode, we use a mock user
-        (req as AuthenticatedRequest).user = {
-          uid: 'dev-user-1',
-          email: 'dev@example.com',
-          name: 'Dev User',
-          picture: '',
-          firebaseId: 'dev-user-1'
-        };
-        console.log('Using development mode authentication with mock user');
-        return next();
-      }
-      
-      // Normal authentication flow for production
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        return sendErrorResponse(
-          res, 
-          "Authentication required to access this resource", 
-          401, 
-          ApiErrorCode.UNAUTHORIZED
-        );
-      }
+  }
 
-      const token = authHeader.split("Bearer ")[1];
-      const decodedToken = await admin.auth().verifyIdToken(token);
+  // Middleware to handle authentication
+  const authenticateUser = async (req: Request, res: Response, next: NextFunction) => {
+    // For development mode, we'll create a mock user session
+    if (process.env.NODE_ENV === 'development' || req.headers['x-dev-mode'] === 'true') {
+      (req as AuthenticatedRequest).user = {
+        uid: 'dev-user-id',
+        email: 'dev@example.com',
+        name: 'Development User'
+      };
+      return next();
+    }
+
+    const idToken = req.headers.authorization?.split('Bearer ')[1];
+    
+    if (!idToken) {
+      return sendErrorResponse(
+        res,
+        "No authentication token provided",
+        401,
+        ApiErrorCode.UNAUTHORIZED
+      );
+    }
+    
+    try {
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
       (req as AuthenticatedRequest).user = decodedToken;
       next();
     } catch (error) {
-      console.error("Authentication error:", error);
+      console.error("Error verifying Firebase ID token:", error);
       return sendErrorResponse(
-        res, 
-        "Invalid or expired authentication token", 
-        401, 
+        res,
+        "Invalid authentication token",
+        401,
         ApiErrorCode.UNAUTHORIZED
       );
     }
   };
 
-  // User endpoints
-  app.get("/api/users/profile", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const userId = req.user.uid;
-      
+  // Define a function for logging with consistent format
+  function log(message: string, level: 'info' | 'warn' | 'error' = 'info') {
+    const timestamp = new Date().toISOString();
+    serverLog(message, 'routes');
+  }
+
+  // Helper to handle database errors with automatic retries
+  async function handleApiDatabaseError<T>(
+    res: Response,
+    error: any,
+    retryOperation?: () => Promise<T>
+  ): Promise<Response | void> {
+    console.error("Database operation error:", error);
+    
+    // If we have a retry operation and the error seems recoverable, try again
+    if (retryOperation && error.code === 'SQLITE_BUSY') {
       try {
-        const user = await storage.getUserByFirebaseId(userId);
-        if (!user) {
-          return sendErrorResponse(
-            res,
-            "User profile not found",
-            404,
-            ApiErrorCode.NOT_FOUND
-          );
-        }
-        res.json(user);
-      } catch (error) {
-        // Pass the retry operation to the error handler for possible recovery
-        await handleApiDatabaseError(res, error, async () => {
-          // This is the retry operation that will be executed if recovery is possible
-          return await storage.getUserByFirebaseId(userId);
-        });
+        console.log("Retrying database operation...");
+        const result = await retryOperation();
+        res.json(result);
+        return;
+      } catch (retryError) {
+        console.error("Retry failed:", retryError);
       }
-    } catch (outerError: any) {
-      log(`Unexpected error in user profile retrieval: ${outerError?.message || 'Unknown error'}`, 'error');
-      sendErrorResponse(
+    }
+    
+    // Send appropriate error response based on the error type
+    if (error.code === 'SQLITE_CONSTRAINT') {
+      return sendErrorResponse(
         res,
-        "An unexpected error occurred while retrieving your profile",
-        500,
-        ApiErrorCode.INTERNAL_SERVER_ERROR
+        "Database constraint violation. The operation cannot be completed.",
+        409,
+        ApiErrorCode.CONFLICT
       );
-    }
-  });
-
-  app.post("/api/users/profile", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const { displayName, status, interests } = req.body;
-      const updatedUser = await storage.updateUser(req.user.uid, {
-        displayName,
-        status,
-        interests,
-      });
-      res.json(updatedUser);
-    } catch (error) {
-      console.error("Error updating user profile:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  // Location update endpoint
-  app.post("/api/users/location", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const { latitude, longitude } = req.body;
-      await storage.updateUserLocation(req.user.uid, { latitude, longitude });
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Error updating user location:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  // Friends endpoints
-  app.get("/api/friends", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const friends = await storage.getFriendsByUserId(req.user.uid);
-      res.json(friends);
-    } catch (error) {
-      console.error("Error fetching friends:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  app.post("/api/friends/request", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const { friendId } = req.body;
-      const friendRequest = await storage.createFriendRequest(req.user.uid, friendId);
-      res.json(friendRequest);
-    } catch (error) {
-      console.error("Error creating friend request:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  app.put("/api/friends/request/:requestId", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const { requestId } = req.params;
-      const { status } = req.body;
-      const updatedRequest = await storage.updateFriendRequest(requestId, status);
-      res.json(updatedRequest);
-    } catch (error) {
-      console.error("Error updating friend request:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  // Activities endpoints
-  app.get("/api/activities", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const activities = await storage.getActivities();
-      res.json(activities);
-    } catch (error) {
-      console.error("Error fetching activities:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  app.post("/api/activities", authenticateUser, withAuth(async (req, res) => {
-    try {
-      // Validate required fields
-      const { title, description, location, startTime, endTime, maxParticipants, category } = req.body;
-      
-      if (!title || !location || !startTime || !endTime) {
-        return sendErrorResponse(
-          res,
-          "Missing required fields for activity creation",
-          400,
-          ApiErrorCode.VALIDATION_ERROR,
-          { requiredFields: ['title', 'location', 'startTime', 'endTime'] }
-        );
-      }
-      
-      const activityData = {
-        ...req.body,
-        creatorId: req.user.uid,
-      };
-      
-      try {
-        const activity = await storage.createActivity(activityData);
-        res.status(201).json(activity);
-      } catch (error) {
-        // Pass the retry operation to the error handler for possible recovery
-        await handleApiDatabaseError(res, error, async () => {
-          // This is the retry operation that will be executed if recovery is possible
-          return await storage.createActivity(activityData);
-        });
-      }
-    } catch (outerError: any) {
-      log(`Unexpected error in activity creation: ${outerError?.message || 'Unknown error'}`, 'error');
-      sendErrorResponse(
+    } else {
+      return sendErrorResponse(
         res,
-        "An unexpected error occurred while processing your request",
+        "A database error occurred. Please try again later.",
         500,
-        ApiErrorCode.INTERNAL_SERVER_ERROR
+        ApiErrorCode.INTERNAL_SERVER_ERROR,
+        { message: error.message }
       );
     }
-  });
+  }
   
-  app.get("/api/activities/:id", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const { id } = req.params;
-      const activity = await storage.getActivityById(id);
-      
-      if (!activity) {
-        return sendErrorResponse(
-          res,
-          `Activity with ID ${id} not found`,
-          404,
-          ApiErrorCode.NOT_FOUND
-        );
-      }
-      
-      res.json({ activity });
-    } catch (error) {
-      await handleApiDatabaseError(res, error);
-    }
-  });
-
-  app.post("/api/activities/:activityId/join", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const { activityId } = req.params;
-      const participant = await storage.joinActivity(activityId, req.user.uid);
-      res.json(participant);
-    } catch (error) {
-      console.error("Error joining activity:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  // Challenges endpoints
-  app.get("/api/challenges", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const challenges = await storage.getChallenges();
-      res.json(challenges);
-    } catch (error) {
-      console.error("Error fetching challenges:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  app.get("/api/challenges/user", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const userChallenges = await storage.getUserChallenges(req.user.uid);
-      res.json(userChallenges);
-    } catch (error) {
-      console.error("Error fetching user challenges:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  app.post("/api/challenges/:challengeId/accept", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const { challengeId } = req.params;
-      const userChallenge = await storage.acceptChallenge(challengeId, req.user.uid);
-      res.json(userChallenge);
-    } catch (error) {
-      console.error("Error accepting challenge:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  app.put("/api/challenges/:challengeId/progress", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const { challengeId } = req.params;
-      const { progress } = req.body;
-      const updatedChallenge = await storage.updateChallengeProgress(challengeId, req.user.uid, progress);
-      res.json(updatedChallenge);
-    } catch (error) {
-      console.error("Error updating challenge progress:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  // Search History endpoints
-  app.post("/api/search/history", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const { query, latitude, longitude, resultCount, category, successful } = req.body;
-      
-      const searchData = {
-        userId: req.user.uid,
-        query,
-        latitude,
-        longitude,
-        resultCount,
-        category,
-        successful: successful !== false // Default to true if not explicitly set to false
-      };
-      
-      const history = await storage.saveSearchHistory(searchData);
-      res.status(201).json(history);
-    } catch (error) {
-      console.error("Error saving search history:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  app.get("/api/search/history", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
-      const history = await storage.getUserSearchHistory(req.user.uid, limit);
-      res.json(history);
-    } catch (error) {
-      console.error("Error fetching search history:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
+  // Reputation system routes
   
-  // Update search history item with tags, notes, or favorite status
-  app.patch("/api/search/history/:id", authenticateUser, withAuth(async (req, res) => {
+  // Get reputation profile for a user
+  app.get('/api/reputation/:userId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const itemId = parseInt(req.params.id);
-      if (isNaN(itemId)) {
-        return res.status(400).json({ message: "Invalid search history ID" });
+      const { userId } = req.params;
+      const reputation = await storage.getUserReputation(userId);
+      
+      if (!reputation) {
+        return sendErrorResponse(res, "User reputation not found", ApiErrorCode.NOT_FOUND);
       }
       
-      // Only allow certain fields to be updated
-      const allowedFields = ['tags', 'notes', 'favorite'];
-      const updates: Record<string, any> = {};
-      
-      for (const field of allowedFields) {
-        if (req.body[field] !== undefined) {
-          updates[field] = req.body[field];
-        }
-      }
-      
-      if (Object.keys(updates).length === 0) {
-        return res.status(400).json({ message: "No valid fields to update" });
-      }
-      
-      // Verify that the search history item belongs to the user
-      const item = await storage.getSearchHistoryItem(itemId);
-      if (!item) {
-        return res.status(404).json({ message: "Search history item not found" });
-      }
-      
-      if (item.userId !== req.user.uid) {
-        return res.status(403).json({ message: "You can only update your own search history" });
-      }
-      
-      const updated = await storage.updateSearchHistoryItem(itemId, updates);
-      res.json(updated);
+      res.json({ reputation });
     } catch (error) {
-      console.error("Error updating search history item:", error);
-      res.status(500).json({ message: "Internal server error" });
+      log(`Error getting reputation: ${error}`, 'error');
+      return sendErrorResponse(res, "Failed to get reputation data", ApiErrorCode.INTERNAL_SERVER_ERROR);
     }
   });
 
-  app.get("/api/search/suggestions", authenticateUser, withAuth(async (req, res) => {
+  // Get reputation events for a user
+  app.get('/api/reputation/:userId/events', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const prefix = req.query.prefix as string || '';
-      const suggestions = await storage.getSearchSuggestions(req.user.uid, prefix);
-      res.json(suggestions);
-    } catch (error) {
-      console.error("Error fetching search suggestions:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  // Search Preferences endpoints
-  app.get("/api/search/preferences", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const preferences = await storage.getUserSearchPreferences(req.user.uid);
-      if (!preferences) {
-        // Create default preferences if none exist
-        const defaultPrefs = {
-          userId: req.user.uid,
-          favoriteCategories: [],
-          favoriteLocations: [],
-          radius: 5
-        };
-        const newPrefs = await storage.createSearchPreferences(defaultPrefs);
-        res.json(newPrefs);
-      } else {
-        res.json(preferences);
+      const { userId } = req.params;
+      const limit = req.query.limit ? Number(req.query.limit) : 20;
+      
+      // Only allow users to view their own reputation events
+      if (userId !== req.user.uid) {
+        return sendErrorResponse(res, "Unauthorized access to reputation events", ApiErrorCode.UNAUTHORIZED);
       }
-    } catch (error) {
-      console.error("Error fetching search preferences:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  app.put("/api/search/preferences", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const { favoriteCategories, favoriteLocations, lastLocation, radius } = req.body;
-      
-      // Get existing preferences or create if they don't exist
-      let preferences = await storage.getUserSearchPreferences(req.user.uid);
-      if (!preferences) {
-        const newPrefs = {
-          userId: req.user.uid,
-          favoriteCategories: favoriteCategories || [],
-          favoriteLocations: favoriteLocations || [],
-          lastLocation,
-          radius: radius || 5
-        };
-        preferences = await storage.createSearchPreferences(newPrefs);
-      } else {
-        // Update existing preferences
-        preferences = await storage.updateSearchPreferences(req.user.uid, {
-          favoriteCategories, 
-          favoriteLocations, 
-          lastLocation, 
-          radius
-        });
-      }
-      
-      res.json(preferences);
-    } catch (error) {
-      console.error("Error updating search preferences:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  // Near Me Now endpoint for personalized nearby suggestions
-  app.get("/api/search/near-me", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const { latitude, longitude, radius = 1 } = req.query;
-      
-      if (!latitude || !longitude) {
-        return res.status(400).json({ message: "Latitude and longitude are required" });
-      }
-      
-      // Try to get user preferences to personalize the suggestions
-      const preferences = await storage.getUserSearchPreferences(req.user.uid);
-      
-      // Get user's search history to determine interests
-      const searchHistory = await storage.getUserSearchHistory(req.user.uid, 20);
-      
-      // Call the OpenAI API for personalized suggestions
-      const response = await fetch(`${req.protocol}://${req.get('host')}/api/openai/location-suggestions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          latitude: parseFloat(latitude as string),
-          longitude: parseFloat(longitude as string),
-          radius: parseFloat(radius as string),
-          preferences: preferences || { favoriteCategories: [], favoriteLocations: [] },
-          history: searchHistory || []
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to get location suggestions: ${response.statusText}`);
-      }
-      
-      const suggestions = await response.json();
-      res.json(suggestions);
-    } catch (error) {
-      console.error("Error getting nearby suggestions:", error);
-      res.status(500).json({ 
-        message: "Failed to get nearby suggestions",
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  });
-
-  // Mount the OpenAI router - we don't require authentication for these endpoints
-  // to allow for guest voice search functionality
-  app.use('/api/openai', openaiRouter);
-  
-  // Chat media upload endpoints
-  app.post('/api/chat/media/upload', authenticateUser, upload.single('media'), withAuth(async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'No file uploaded' 
-        });
-      }
-
-      // Get the uploaded file details
-      const file = req.file;
-      
-      // Determine media type from mimetype
-      let mediaType: 'image' | 'video' | 'audio';
-      if (file.mimetype.startsWith('image/')) {
-        mediaType = 'image';
-      } else if (file.mimetype.startsWith('video/')) {
-        mediaType = 'video';
-      } else if (file.mimetype.startsWith('audio/')) {
-        mediaType = 'audio';
-      } else {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Unsupported file type' 
-        });
-      }
-
-      // Generate file URL
-      const fileUrl = getFileUrl(req, file);
-      
-      // Generate thumbnail for images and videos (if applicable)
-      const thumbnailPath = await generateThumbnail(file);
-      let thumbnailUrl = null;
-      if (thumbnailPath) {
-        thumbnailUrl = fileUrl.replace(path.basename(fileUrl), path.basename(thumbnailPath));
-      }
-
-      // Return the media information
-      res.status(200).json({
-        success: true,
-        mediaType,
-        mediaURL: fileUrl,
-        mediaThumbnailURL: thumbnailUrl,
-        mediaSize: file.size,
-        filename: file.originalname,
-        mimeType: file.mimetype
-      });
-    } catch (error) {
-      console.error('Error uploading media:', error);
-      res.status(500).json({ 
-        success: false, 
-        message: 'Error uploading media' 
-      });
-    }
-  });
-
-  // Activity Recommendations API endpoints
-  app.get("/api/recommendations", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const userId = req.user.uid;
-      const recommendations = await storage.getActivityRecommendationsForUser(userId);
-      
-      if (recommendations.length === 0) {
-        // Generate new recommendations if none exist
-        const newRecommendations = await storage.generateRecommendationsForUser(userId);
-        return res.json({ recommendations: newRecommendations });
-      }
-      
-      return res.json({ recommendations });
-    } catch (error) {
-      await handleApiDatabaseError(res, error);
-    }
-  });
-
-  app.post("/api/recommendations/generate", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const userId = req.user.uid;
-      const recommendations = await storage.generateRecommendationsForUser(userId);
-      return res.json({ recommendations });
-    } catch (error) {
-      await handleApiDatabaseError(res, error);
-    }
-  });
-
-  app.patch("/api/recommendations/:id/status", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { status } = req.body;
-      
-      if (!['pending', 'accepted', 'rejected', 'saved'].includes(status)) {
-        return sendErrorResponse(
-          res,
-          "Invalid status. Must be one of: pending, accepted, rejected, saved",
-          400,
-          ApiErrorCode.VALIDATION_ERROR
-        );
-      }
-      
-      const updatedRecommendation = await storage.updateActivityRecommendationStatus(
-        parseInt(id), 
-        status
-      );
-      
-      if (!updatedRecommendation) {
-        return sendErrorResponse(
-          res,
-          `Recommendation with ID ${id} not found`,
-          404,
-          ApiErrorCode.NOT_FOUND
-        );
-      }
-      
-      return res.json({ recommendation: updatedRecommendation });
-    } catch (error) {
-      await handleApiDatabaseError(res, error);
-    }
-  });
-  
-  // Activity Preferences endpoints
-  app.get("/api/activity-preferences", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const userId = req.user.uid;
-      const preferences = await storage.getUserActivityPreferences(userId);
-      
-      if (!preferences) {
-        // If no preferences exist, create default preferences
-        const defaultPreferences = {
-          userId,
-          preferredCategories: [],
-          preferredDayOfWeek: [5, 6], // Friday and Saturday
-          preferredTimeOfDay: ["evening"],
-          preferredDistance: 10,
-          participationHistory: []
-        };
-        
-        const newPreferences = await storage.createActivityPreferences(defaultPreferences);
-        return res.json({ preferences: newPreferences });
-      }
-      
-      return res.json({ preferences });
-    } catch (error) {
-      await handleApiDatabaseError(res, error);
-    }
-  });
-  
-  app.put("/api/activity-preferences", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const userId = req.user.uid;
-      const { preferredCategories, preferredDayOfWeek, preferredTimeOfDay, preferredDistance } = req.body;
-      
-      // Basic validation
-      if (!Array.isArray(preferredCategories) || 
-          !Array.isArray(preferredDayOfWeek) || 
-          !Array.isArray(preferredTimeOfDay) || 
-          typeof preferredDistance !== 'number') {
-        return sendErrorResponse(
-          res,
-          "Invalid preferences format. Please check the data types.",
-          400,
-          ApiErrorCode.VALIDATION_ERROR
-        );
-      }
-      
-      // Check if preferences exist
-      let preferences = await storage.getUserActivityPreferences(userId);
-      
-      if (!preferences) {
-        // Create new preferences if they don't exist
-        const newPreferences = await storage.createActivityPreferences({
-          userId,
-          preferredCategories,
-          preferredDayOfWeek,
-          preferredTimeOfDay,
-          preferredDistance,
-          participationHistory: []
-        });
-        
-        return res.json({ preferences: newPreferences, created: true });
-      }
-      
-      // Update existing preferences
-      const updatedPreferences = await storage.updateActivityPreferences(userId, {
-        preferredCategories,
-        preferredDayOfWeek,
-        preferredTimeOfDay,
-        preferredDistance
-      });
-      
-      // After updating preferences, generate new recommendations
-      await storage.generateRecommendationsForUser(userId);
-      
-      return res.json({ preferences: updatedPreferences, updated: true });
-    } catch (error) {
-      await handleApiDatabaseError(res, error);
-    }
-  });
-
-  // Reputation System API endpoints
-  
-  // Get user's reputation profile
-  app.get("/api/reputation/profile", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const userId = req.user.uid;
-      const reputationProfile = await storage.getUserReputation(userId);
-      
-      if (!reputationProfile) {
-        // If no profile exists yet, return a placeholder with default values
-        return res.json({
-          userId,
-          overallScore: 50,
-          reliabilityScore: 50,
-          safetyScore: 50,
-          communityScore: 50,
-          activityCount: 0,
-          verificationLevel: 0,
-          isVerified: false,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        });
-      }
-      
-      return res.json(reputationProfile);
-    } catch (error) {
-      return handleApiDatabaseError(res, error);
-    }
-  });
-  
-  // Create or update user's reputation profile
-  app.post("/api/reputation/profile", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const userId = req.user.uid;
-      const reputationData = req.body;
-      
-      // Validate input
-      if (!reputationData) {
-        return sendErrorResponse(
-          res,
-          400,
-          ApiErrorCode.VALIDATION_ERROR,
-          "Missing reputation data"
-        );
-      }
-      
-      // Check if profile already exists
-      const existingProfile = await storage.getUserReputation(userId);
-      
-      let reputationProfile;
-      
-      if (existingProfile) {
-        // Update existing profile
-        reputationProfile = await storage.updateUserReputation(userId, reputationData);
-      } else {
-        // Create new profile
-        reputationProfile = await storage.createUserReputation({
-          userId,
-          overallScore: reputationData.overallScore || 50,
-          reliabilityScore: reputationData.reliabilityScore || 50,
-          safetyScore: reputationData.safetyScore || 50,
-          communityScore: reputationData.communityScore || 50,
-          activityCount: reputationData.activityCount || 0,
-          verificationLevel: reputationData.verificationLevel || 0,
-          isVerified: reputationData.isVerified || false
-        });
-      }
-      
-      return res.json(reputationProfile);
-    } catch (error) {
-      return handleApiDatabaseError(res, error);
-    }
-  });
-  
-  // Get user's reputation events
-  app.get("/api/reputation/events", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const userId = req.user.uid;
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
       
       const events = await storage.getReputationEvents(userId, limit);
-      return res.json(events);
-    } catch (error) {
-      return handleApiDatabaseError(res, error);
-    }
-  });
-  
-  // Create a new reputation event
-  app.post("/api/reputation/events", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const { eventTypeId, referenceId, referenceType, value, details } = req.body;
-      const userId = req.user.uid;
-      
-      // Validate input
-      if (!eventTypeId || !referenceType) {
-        return sendErrorResponse(
-          res,
-          400,
-          ApiErrorCode.VALIDATION_ERROR,
-          "Missing required event data"
-        );
-      }
-      
-      const newEvent = await storage.createReputationEvent({
-        userId,
-        eventTypeId,
-        referenceId: referenceId || `manual_${Date.now()}`,
-        referenceType,
-        value: value || 0,
-        details: details || '{}'
-      });
-      
-      return res.status(201).json(newEvent);
-    } catch (error) {
-      return handleApiDatabaseError(res, error);
-    }
-  });
-  
-  // Get available reputation event types
-  app.get("/api/reputation/event-types", authenticateUser, withAuth(async (req, res) => {
-    try {
       const eventTypes = await storage.getReputationEventTypes();
-      return res.json(eventTypes);
+      
+      res.json({ events, eventTypes });
     } catch (error) {
-      return handleApiDatabaseError(res, error);
+      log(`Error getting reputation events: ${error}`, 'error');
+      return sendErrorResponse(res, "Failed to get reputation events", ApiErrorCode.INTERNAL_SERVER_ERROR);
     }
   });
-  
-  // User ratings endpoints
-  
-  // Get ratings for a user
-  app.get("/api/reputation/ratings", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const userId = req.user.uid;
-      const asReceiver = req.query.as_receiver !== 'false'; // Default to true
-      
-      const ratings = await storage.getUserRatings(userId, asReceiver);
-      return res.json(ratings);
-    } catch (error) {
-      return handleApiDatabaseError(res, error);
-    }
-  });
-  
-  // Create a new rating
-  app.post("/api/reputation/ratings", authenticateUser, withAuth(async (req, res) => {
-    try {
-      const { receiverId, score, comment, context, referenceId, isAnonymous } = req.body;
-      const giverId = req.user.uid;
-      
-      // Validate input
-      if (!receiverId || score === undefined || !context) {
-        return sendErrorResponse(
-          res,
-          400,
-          ApiErrorCode.VALIDATION_ERROR,
-          "Missing required rating data"
-        );
-      }
-      
-      // Prevent self-rating
-      if (giverId === receiverId) {
-        return sendErrorResponse(
-          res,
-          400,
-          ApiErrorCode.VALIDATION_ERROR,
-          "Cannot rate yourself"
-        );
-      }
-      
-      const newRating = await storage.createUserRating({
-        giverId,
-        receiverId,
-        score,
-        comment: comment || '',
-        context,
-        referenceId: referenceId || `manual_${Date.now()}`,
-        isAnonymous: isAnonymous || false
-      });
-      
-      return res.status(201).json(newRating);
-    } catch (error) {
-      return handleApiDatabaseError(res, error);
-    }
-  });
-  
-  // Trust connection endpoints
-  
+
   // Get trust connections for a user
-  app.get("/api/reputation/trust", authenticateUser, withAuth(async (req, res) => {
+  app.get('/api/trust/:userId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const userId = req.user.uid;
-      const asTrusted = req.query.as_trusted === 'true'; // Default to false
+      const { userId } = req.params;
       
-      const connections = await storage.getTrustConnections(userId, asTrusted);
-      return res.json(connections);
+      // Get trust connections
+      const trusted = await storage.getTrustConnections(userId, false);
+      const trustedBy = await storage.getTrustConnections(userId, true);
+      
+      res.json({ trusted, trustedBy });
     } catch (error) {
-      return handleApiDatabaseError(res, error);
+      log(`Error getting trust connections: ${error}`, 'error');
+      return sendErrorResponse(res, "Failed to get trust connections", ApiErrorCode.INTERNAL_SERVER_ERROR);
     }
   });
-  
-  // Create a new trust connection
-  app.post("/api/reputation/trust", authenticateUser, withAuth(async (req, res) => {
+
+  // Create new trust connection
+  app.post('/api/trust', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { trustedId, level, notes } = req.body;
-      const trusterId = req.user.uid;
       
-      // Validate input
-      if (!trustedId || level === undefined) {
-        return sendErrorResponse(
-          res,
-          400,
-          ApiErrorCode.VALIDATION_ERROR,
-          "Missing required trust connection data"
-        );
+      if (!trustedId || !level) {
+        return sendErrorResponse(res, "Missing required fields", ApiErrorCode.VALIDATION_ERROR);
       }
       
-      // Prevent self-trust
-      if (trusterId === trustedId) {
-        return sendErrorResponse(
-          res,
-          400,
-          ApiErrorCode.VALIDATION_ERROR,
-          "Cannot trust yourself"
-        );
+      // Make sure the user is not trying to trust themselves
+      if (trustedId === req.user.uid) {
+        return sendErrorResponse(res, "Cannot create trust connection with yourself", ApiErrorCode.VALIDATION_ERROR);
       }
       
-      // Create the connection
-      try {
-        const newConnection = await storage.createTrustConnection({
-          trusterId,
-          trustedId,
-          level,
-          notes: notes || null
-        });
-        
-        return res.status(201).json(newConnection);
-      } catch (error) {
-        // Check if error is about existing connection
-        if (error instanceof Error && error.message.includes('already exists')) {
-          return sendErrorResponse(
-            res,
-            409,
-            ApiErrorCode.CONFLICT,
-            "Trust connection already exists. Use PUT to update it."
-          );
-        }
-        throw error;
+      // Check if a connection already exists
+      const existingConnections = await storage.getTrustConnections(req.user.uid);
+      const alreadyExists = existingConnections.some(conn => conn.trustedId === trustedId);
+      
+      if (alreadyExists) {
+        return sendErrorResponse(res, "Trust connection already exists", ApiErrorCode.CONFLICT);
       }
+      
+      // Create the trust connection
+      const connection = await storage.createTrustConnection({
+        trusterId: req.user.uid,
+        trustedId,
+        level,
+        notes
+      });
+      
+      res.status(201).json({ connection });
     } catch (error) {
-      return handleApiDatabaseError(res, error);
+      log(`Error creating trust connection: ${error}`, 'error');
+      return sendErrorResponse(res, "Failed to create trust connection", ApiErrorCode.INTERNAL_SERVER_ERROR);
     }
   });
-  
-  // Update an existing trust connection
-  app.put("/api/reputation/trust/:trustedId", authenticateUser, withAuth(async (req, res) => {
+
+  // Update trust connection
+  app.patch('/api/trust/:trustedId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { trustedId } = req.params;
       const { level, notes } = req.body;
-      const trusterId = req.user.uid;
       
-      // Validate input
-      if (!trustedId || level === undefined) {
-        return sendErrorResponse(
-          res,
-          400,
-          ApiErrorCode.VALIDATION_ERROR,
-          "Missing required trust connection data"
-        );
+      if (!level) {
+        return sendErrorResponse(res, "Missing required fields", ApiErrorCode.VALIDATION_ERROR);
       }
       
-      // Update the connection
-      const updatedConnection = await storage.updateTrustConnection(
-        trusterId,
+      // Update the trust connection
+      const connection = await storage.updateTrustConnection(
+        req.user.uid,
         trustedId,
         level,
         notes
       );
       
-      if (!updatedConnection) {
-        return sendErrorResponse(
-          res,
-          404,
-          ApiErrorCode.NOT_FOUND,
-          "Trust connection not found"
-        );
+      if (!connection) {
+        return sendErrorResponse(res, "Trust connection not found", ApiErrorCode.NOT_FOUND);
       }
       
-      return res.json(updatedConnection);
+      res.json({ connection });
     } catch (error) {
-      return handleApiDatabaseError(res, error);
+      log(`Error updating trust connection: ${error}`, 'error');
+      return sendErrorResponse(res, "Failed to update trust connection", ApiErrorCode.INTERNAL_SERVER_ERROR);
     }
   });
 
+  // Delete trust connection
+  app.delete('/api/trust/:trustedId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { trustedId } = req.params;
+      
+      // Get trust connections for the user
+      const connections = await storage.getTrustConnections(req.user.uid);
+      
+      // Find the connection to delete
+      const connectionToDelete = connections.find(conn => conn.trustedId === trustedId);
+      
+      if (!connectionToDelete) {
+        return sendErrorResponse(res, "Trust connection not found", ApiErrorCode.NOT_FOUND);
+      }
+      
+      // Delete the trust connection
+      await storage.deleteTrustConnection(connectionToDelete.id);
+      
+      res.status(204).send();
+    } catch (error) {
+      log(`Error deleting trust connection: ${error}`, 'error');
+      return sendErrorResponse(res, "Failed to delete trust connection", ApiErrorCode.INTERNAL_SERVER_ERROR);
+    }
+  });
+
+  // Create user rating
+  app.post('/api/ratings', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { receiverId, score, comment, context, referenceId, isAnonymous } = req.body;
+      
+      if (!receiverId || !score || !context) {
+        return sendErrorResponse(res, "Missing required fields", ApiErrorCode.VALIDATION_ERROR);
+      }
+      
+      // Make sure the user is not trying to rate themselves
+      if (receiverId === req.user.uid) {
+        return sendErrorResponse(res, "Cannot rate yourself", ApiErrorCode.VALIDATION_ERROR);
+      }
+      
+      // Create the rating
+      const rating = await storage.createUserRating({
+        giverId: req.user.uid,
+        receiverId,
+        score,
+        comment,
+        context,
+        referenceId,
+        isAnonymous: isAnonymous || false
+      });
+      
+      res.status(201).json({ rating });
+    } catch (error) {
+      log(`Error creating user rating: ${error}`, 'error');
+      return sendErrorResponse(res, "Failed to create user rating", ApiErrorCode.INTERNAL_SERVER_ERROR);
+    }
+  });
+
+  // Get ratings for a user
+  app.get('/api/ratings/:userId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { userId } = req.params;
+      const asReceiver = req.query.asReceiver !== 'false'; // Default to true
+      
+      const ratings = await storage.getUserRatings(userId, asReceiver);
+      
+      // If requesting received ratings, exclude anonymous ratings unless it's the user's own profile
+      const filteredRatings = asReceiver && userId !== req.user.uid
+        ? ratings.filter(rating => !rating.isAnonymous)
+        : ratings;
+      
+      res.json({ ratings: filteredRatings });
+    } catch (error) {
+      log(`Error getting user ratings: ${error}`, 'error');
+      return sendErrorResponse(res, "Failed to get user ratings", ApiErrorCode.INTERNAL_SERVER_ERROR);
+    }
+  });
+
+  // Search users endpoint (for trust connections)
+  app.get('/api/users/search', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const query = req.query.q as string;
+      
+      if (!query || query.length < 2) {
+        return res.json({ users: [] });
+      }
+      
+      // Search for users
+      const users = await storage.searchUsers(query, 10);
+      
+      // Exclude the current user from results
+      const filteredUsers = users.filter(user => user.firebaseId !== req.user.uid);
+      
+      res.json({ users: filteredUsers });
+    } catch (error) {
+      log(`Error searching users: ${error}`, 'error');
+      return sendErrorResponse(res, "Failed to search users", ApiErrorCode.INTERNAL_SERVER_ERROR);
+    }
+  });
+
+  
+  // Serve public files from uploads directory
+  app.get("/uploads/:fileId", (req, res, next) => {
+    const filepath = path.join(__dirname, "../uploads", req.params.fileId);
+    if (path.extname(filepath)) {
+      return res.sendFile(filepath);
+    }
+    next();
+  });
+  
+
+
+  // Mount the OpenAI router - commented out for now
+  // app.use('/api/openai', openaiRouter);
+  
+  // API endpoint for activity recommendations
+  app.get('/api/recommendations', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const recommendations = await storage.getActivityRecommendationsForUser(req.user.uid);
+      return res.json({ recommendations });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+  
+  // API endpoint for generating new recommendations
+  app.post('/api/recommendations/generate', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const recommendations = await storage.generateRecommendationsForUser(req.user.uid);
+      return res.json({ recommendations });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+  
+  // API endpoint for updating recommendation status
+  app.patch('/api/recommendations/:id/status', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { status } = req.body;
+      
+      if (!status || !['pending', 'accepted', 'rejected', 'saved'].includes(status)) {
+        return sendErrorResponse(
+          res,
+          "Invalid status value",
+          "400",
+          ApiErrorCode.VALIDATION_ERROR,
+          { accepted_values: ['pending', 'accepted', 'rejected', 'saved'] }
+        );
+      }
+      
+      const updatedRecommendation = await storage.updateActivityRecommendationStatus(id, status);
+      return res.json({ recommendation: updatedRecommendation });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+  
+  // Search history endpoints
+  app.get('/api/search/history', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      const history = await storage.getUserSearchHistory(req.user.uid, limit);
+      return res.json({ history });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+
+  app.post('/api/search/save', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const searchData = req.body;
+      
+      // Make sure user ID is set correctly
+      const searchDataWithUser = {
+        ...searchData,
+        userId: req.user.uid
+      };
+      
+      try {
+        insertSearchHistorySchema.parse(searchDataWithUser);
+      } catch (validationError) {
+        log(`Invalid search data: ${JSON.stringify(validationError)}`, 'error');
+        return sendErrorResponse(
+          res,
+          "Invalid search data",
+          "400",
+          ApiErrorCode.VALIDATION_ERROR,
+          validationError
+        );
+      }
+      
+      // Check if user exists in database first
+      const user = await storage.getUserByFirebaseId(req.user.uid);
+      if (!user) {
+        log(`User ${req.user.uid} not found in database when saving search history. Attempting to create dev user.`, 'warn');
+        
+        // In development mode, try to create a dev user if it doesn't exist
+        if (req.user.uid === 'dev-user-id') {
+          try {
+            // Create a dev user if it doesn't exist
+            await storage.createUser({
+              firebaseId: 'dev-user-id',
+              username: 'dev_user',
+              email: 'dev@example.com',
+              displayName: 'Dev User'
+              // Schema doesn't include password field
+            });
+            log('Created dev user for search history', 'info');
+          } catch (error: any) {
+            // Ignore duplicate key errors (user might have been created by another request)
+            if (error.code !== 'UNIQUE_CONSTRAINT') {
+              log(`Failed to create dev user: ${error.message}`, 'error');
+              return sendErrorResponse(
+                res,
+                "Cannot save search history: failed to create user",
+                "500",
+                ApiErrorCode.INTERNAL_SERVER_ERROR
+              );
+            }
+          }
+        } else {
+          return sendErrorResponse(
+            res,
+            "User not found",
+            "404",
+            ApiErrorCode.NOT_FOUND
+          );
+        }
+      }
+      
+      const searchHistory = await storage.saveSearchHistory(searchDataWithUser);
+      return res.status(201).json({ searchHistory });
+    } catch (error: any) {
+      log(`Error saving search history: ${error.message}`, 'error');
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+
+  app.get('/api/search/suggestions', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const prefix = req.query.q as string || '';
+      if (!prefix) {
+        return res.json({ suggestions: [] });
+      }
+      
+      const suggestions = await storage.getSearchSuggestions(req.user.uid, prefix);
+      return res.json({ suggestions });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+  
+  // Get nearby search suggestions based on user location and popular searches
+  app.get('/api/search/nearby', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const userId = req.user.uid;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 6;
+      
+      // These would normally come from database based on location
+      // For now using hardcoded suggestions relevant to Norwegian users
+      const suggestions = [
+        "Plogging i Frognerparken",
+        "Joggegruppe Majorstuen",
+        "Kajakk ved Bygdøy",
+        "Yoga i Slottsparken",
+        "Fotballtrening Voldsløkka",
+        "Fjelltur Holmenkollen"
+      ].slice(0, limit);
+      
+      return res.json({ suggestions });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+  
+  // Get personalized search suggestions based on user history and behavior
+  app.get('/api/search/personalized', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const userId = req.user.uid;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      
+      // Step 1: Get user's search history
+      const userHistory = await storage.getUserSearchHistory(userId, 50);
+      
+      // Step 2: Get user's activity preferences if available
+      let userPreferences;
+      try {
+        userPreferences = await storage.getUserActivityPreferences(userId);
+      } catch (e) {
+        console.log("Activity preferences not found for user");
+      }
+      
+      // Step 3: Generate personalized suggestions
+      
+      // Extract frequent search terms from user history
+      const searchTerms = userHistory.map(item => item.query);
+      const searchTypes = userHistory
+        .filter(item => item.type)
+        .map(item => item.type);
+      
+      // Count frequency of searches
+      const termFrequency: Record<string, number> = {};
+      searchTerms.forEach(term => {
+        termFrequency[term] = (termFrequency[term] || 0) + 1;
+      });
+      
+      // Count frequency of search types
+      const typeFrequency: Record<string, number> = {};
+      searchTypes.forEach(type => {
+        if (type) {
+          typeFrequency[type] = (typeFrequency[type] || 0) + 1;
+        }
+      });
+      
+      // Filter favorite searches
+      const favorites = userHistory
+        .filter(item => item.favorite)
+        .map(item => item.query);
+      
+      // Generate time-based suggestions
+      const hour = new Date().getHours();
+      const timeBasedSuggestions: string[] = [];
+      
+      // Morning suggestions
+      if (hour >= 6 && hour < 11) {
+        timeBasedSuggestions.push('Morgentrening', 'Frokost-treff', 'Joggetur');
+      }
+      // Lunch suggestions
+      else if (hour >= 11 && hour < 14) {
+        timeBasedSuggestions.push('Lunsj-treff', 'Shopping-tur', 'Kaffepauser');
+      }
+      // Afternoon suggestions
+      else if (hour >= 14 && hour < 18) {
+        timeBasedSuggestions.push('Ettermiddagstur', 'Studiegruppe', 'Fotball');
+      }
+      // Evening suggestions
+      else {
+        timeBasedSuggestions.push('Middag ute', 'Kveldstrening', 'Filmkveld');
+      }
+      
+      // Include preferences-based suggestions if available
+      const preferencesBasedSuggestions: string[] = [];
+      if (userPreferences) {
+        const preferredCategories = userPreferences.preferredCategories || [];
+        const preferredTimeOfDay = userPreferences.preferredTimeOfDay || [];
+        
+        // Map activity types to suggestions based on preferred categories
+        if (preferredCategories.includes('outdoor')) {
+          preferencesBasedSuggestions.push('Friluftsliv', 'Fjelltur', 'Sykling');
+        }
+        if (preferredCategories.includes('sports')) {
+          preferencesBasedSuggestions.push('Fotball', 'Basketball', 'Tennis');
+        }
+        if (preferredCategories.includes('cultural')) {
+          preferencesBasedSuggestions.push('Museum', 'Konserter', 'Kunstutstilling');
+        }
+        if (preferredCategories.includes('social')) {
+          preferencesBasedSuggestions.push('Kaffetreff', 'Middag ute', 'Filmkveld');
+        }
+      }
+      
+      // Trending or popular searches (could be from global stats in a real implementation)
+      const trendingSuggestions = [
+        'Plogging', 
+        'Kajakktur',
+        'Fotballkamp',
+        'Løpetrening',
+        'Yogaklasse',
+        'Sykkeltur'
+      ];
+      
+      // Combine all suggestions, prioritizing favorites and frequent searches
+      let personalizedSuggestions = [
+        ...favorites,
+        ...Object.keys(termFrequency)
+          .sort((a, b) => termFrequency[b] - termFrequency[a])
+          .slice(0, 5),
+        ...preferencesBasedSuggestions,
+        ...timeBasedSuggestions,
+        ...trendingSuggestions
+      ];
+      
+      // Remove duplicates
+      personalizedSuggestions = Array.from(new Set(personalizedSuggestions));
+      
+      // Return limited results
+      return res.json({ 
+        suggestions: personalizedSuggestions.slice(0, limit),
+        trending: trendingSuggestions.slice(0, 3),
+        categories: {
+          favorites: favorites.slice(0, 3),
+          timeBased: timeBasedSuggestions.slice(0, 3),
+          trending: trendingSuggestions.slice(0, 3),
+          preferences: preferencesBasedSuggestions.slice(0, 3)
+        }
+      });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+
+  app.get('/api/search/preferences', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const preferences = await storage.getUserSearchPreferences(req.user.uid);
+      return res.json({ preferences: preferences || {} });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+
+  app.post('/api/search/preferences', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const userPreferences = req.body;
+      
+      // Check if user already has preferences
+      const existingPreferences = await storage.getUserSearchPreferences(req.user.uid);
+      
+      let preferences;
+      if (existingPreferences) {
+        // Update existing preferences
+        preferences = await storage.updateSearchPreferences(req.user.uid, userPreferences);
+      } else {
+        // Create new preferences
+        try {
+          insertSearchPreferencesSchema.parse({
+            ...userPreferences,
+            userId: req.user.uid
+          });
+        } catch (validationError) {
+          log(`Invalid search preferences: ${JSON.stringify(validationError)}`, 'error');
+          return sendErrorResponse(
+            res,
+            "Invalid search preferences data",
+            "400",
+            ApiErrorCode.VALIDATION_ERROR,
+            validationError
+          );
+        }
+        
+        preferences = await storage.createSearchPreferences({
+          ...userPreferences,
+          userId: req.user.uid
+        });
+      }
+      
+      return res.json({ preferences });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+
+  // Near-me search endpoint
+  app.get('/api/search/near-me', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const latitude = req.query.lat ? parseFloat(req.query.lat as string) : null;
+      const longitude = req.query.lng ? parseFloat(req.query.lng as string) : null;
+      const radius = req.query.radius ? parseInt(req.query.radius as string) : 5;
+      
+      if (!latitude || !longitude) {
+        return sendErrorResponse(
+          res,
+          "Missing location coordinates",
+          "400", 
+          ApiErrorCode.VALIDATION_ERROR
+        );
+      }
+      
+      // Check if user exists in database
+      const user = await storage.getUserByFirebaseId(req.user.uid);
+      if (!user) {
+        log(`User ${req.user.uid} not found in database when performing near-me search`, 'warn');
+        
+        // Don't try to save preferences or history if user doesn't exist
+        // Just return results
+        return res.json({ 
+          results: [],
+          location: { latitude, longitude },
+          radius
+        });
+      }
+      
+      // Update user's last location in search preferences
+      const userPrefs = await storage.getUserSearchPreferences(req.user.uid);
+      if (userPrefs) {
+        await storage.updateSearchPreferences(req.user.uid, {
+          lastLocation: { latitude, longitude }
+        });
+      }
+      
+      // Save search to history
+      await storage.saveSearchHistory({
+        userId: req.user.uid,
+        query: "nearby",
+        latitude: latitude.toString(),
+        longitude: longitude.toString(),
+        type: "map_search",
+        successful: true
+      });
+      
+      // For now returning eksempeldata - i en fremtidig implementasjon
+      // ville dette faktisk søke etter brukere eller aktiviteter i nærheten
+      const mockResults = [
+        {
+          name: "Plogging i Frognerparken",
+          type: "Aktivitet",
+          description: "Bli med på miljøvennlig jogging mens vi plukker søppel i Frognerparken",
+          distance: "1.2 km"
+        },
+        {
+          name: "Kajakkpadling ved Bygdøy",
+          type: "Vannsport",
+          description: "Rolig kajakktur langs Bygdøy med fokus på naturopplevelser og fotografering",
+          distance: "1.8 km"
+        },
+        {
+          name: "Yoga i Slottsparken",
+          type: "Trening",
+          description: "Utendørs yoga for alle nivåer. Ta med egen matte!",
+          distance: "0.5 km"
+        }
+      ];
+      
+      return res.json({ 
+        results: mockResults,
+        location: { latitude, longitude },
+        radius
+      });
+    } catch (error: any) {
+      log(`Error performing near-me search: ${error.message}`, 'error');
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+  
+  app.patch('/api/search/history/:id', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updateData = req.body;
+      
+      // Ensure user can only update their own search history
+      const historyItem = await storage.getSearchHistoryItem(id);
+      if (!historyItem) {
+        return sendErrorResponse(
+          res, 
+          "Search history item not found", 
+          "404", 
+          ApiErrorCode.NOT_FOUND
+        );
+      }
+      
+      if (historyItem.userId !== req.user.uid) {
+        return sendErrorResponse(
+          res,
+          "You don't have permission to update this search history item",
+          "403",
+          ApiErrorCode.FORBIDDEN
+        );
+      }
+      
+      const updatedHistory = await storage.updateSearchHistoryItem(id, updateData);
+      return res.json({ history: updatedHistory });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
+  
   const httpServer = createServer(app);
   
   // Initialize WebSocket server on the same HTTP server but on a different path
@@ -1024,475 +860,5 @@ export async function registerRoutes(app: Express): Promise<Server> {
     path: '/ws' 
   });
   
-  // Connected clients with their user IDs and additional data
-  const clients = new Map<WebSocket, { 
-    userId: string;
-    lastActivity: number;
-    authenticated: boolean;
-    subscriptions: string[]; // Topics/channels the client is subscribed to
-    publicKey?: string; // For encrypted communication
-  }>();
-  
-  // Set up ping interval to keep connections alive
-  const pingInterval = setInterval(() => {
-    wss.clients.forEach((ws) => {
-      // Check if the client is still active
-      const clientInfo = clients.get(ws);
-      if (clientInfo) {
-        // If inactive for 5 minutes, close the connection
-        if (Date.now() - clientInfo.lastActivity > 5 * 60 * 1000) {
-          console.log(`Closing inactive connection for user: ${clientInfo.userId}`);
-          ws.terminate();
-          return;
-        }
-        
-        // Send ping
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.ping();
-        }
-      }
-    });
-  }, 30000); // Check every 30 seconds
-  
-  // Handle WebSocket server shutdown
-  httpServer.on('close', () => {
-    clearInterval(pingInterval);
-  });
-  
-  wss.on('connection', (ws, req) => {
-    console.log('WebSocket client connected');
-    
-    // Add client to the clients Map with initial data
-    clients.set(ws, { 
-      userId: 'unknown',
-      lastActivity: Date.now(),
-      authenticated: false,
-      subscriptions: [],
-      publicKey: undefined
-    });
-    
-    // Handle pong messages to keep track of active connections
-    ws.on('pong', () => {
-      const clientInfo = clients.get(ws);
-      if (clientInfo) {
-        clientInfo.lastActivity = Date.now();
-        clients.set(ws, clientInfo);
-      }
-    });
-    
-    // Handle messages from clients
-    ws.on('message', async (message) => {
-      try {
-        const data = JSON.parse(message.toString());
-        console.log('Received message type:', data.type);
-        
-        // Update last activity timestamp
-        const clientInfo = clients.get(ws);
-        if (clientInfo) {
-          clientInfo.lastActivity = Date.now();
-          clients.set(ws, clientInfo);
-        }
-        
-        // Handle authentication message
-        if (data.type === 'authenticate') {
-          if (data.token) {
-            try {
-              // Verify the Firebase ID token
-              const decodedToken = await admin.auth().verifyIdToken(data.token);
-              const userId = decodedToken.uid;
-              
-              // Update client info with the authenticated user ID
-              clients.set(ws, { 
-                ...clientInfo!,
-                userId,
-                authenticated: true,
-                publicKey: clientInfo?.publicKey
-              });
-              
-              // Send authentication confirmation
-              ws.send(JSON.stringify({ 
-                type: 'authentication_result', 
-                success: true,
-                userId
-              });
-              
-              console.log(`Client authenticated: ${userId}`);
-              
-              // Send any pending messages for the user
-              const pendingMessages = await storage.getPendingMessagesForUser(userId);
-              if (pendingMessages && pendingMessages.length > 0) {
-                ws.send(JSON.stringify({
-                  type: 'pending_messages',
-                  messages: pendingMessages
-                });
-                
-                // Mark messages as delivered
-                await storage.markMessagesAsDelivered(userId, pendingMessages.map(m => m.id.toString()));
-              }
-            } catch (error) {
-              console.error('Authentication error:', error);
-              ws.send(JSON.stringify({ 
-                type: 'authentication_result', 
-                success: false, 
-                error: 'Invalid token' 
-              });
-            }
-          }
-        }
-        
-        // Handle channel subscription
-        else if (data.type === 'subscribe') {
-          if (!clientInfo || !clientInfo.authenticated) {
-            ws.send(JSON.stringify({
-              type: 'error',
-              code: 'NOT_AUTHENTICATED',
-              message: 'Authentication required'
-            });
-            return;
-          }
-          
-          if (data.channel) {
-            // Add channel to subscriptions
-            if (!clientInfo.subscriptions.includes(data.channel)) {
-              clientInfo.subscriptions.push(data.channel);
-              clients.set(ws, clientInfo);
-            }
-            
-            ws.send(JSON.stringify({
-              type: 'subscription_result',
-              channel: data.channel,
-              success: true
-            });
-          }
-        }
-        
-        // Handle location update
-        else if (data.type === 'location_update') {
-          if (!clientInfo || !clientInfo.authenticated) {
-            ws.send(JSON.stringify({
-              type: 'error',
-              code: 'NOT_AUTHENTICATED',
-              message: 'Authentication required'
-            });
-            return;
-          }
-          
-          try {
-            // Store the location update
-            await storage.updateUserLocation(clientInfo.userId, {
-              latitude: data.latitude,
-              longitude: data.longitude
-            });
-            
-            // Send confirmation to the client
-            ws.send(JSON.stringify({
-              type: 'location_update_result',
-              success: true,
-              timestamp: Date.now()
-            });
-            
-            // Broadcast to nearby users if needed
-            broadcastToNearbyUsers(clientInfo.userId, {
-              type: 'nearby_user',
-              userId: clientInfo.userId,
-              location: {
-                latitude: data.latitude,
-                longitude: data.longitude
-              },
-              timestamp: Date.now()
-            });
-          } catch (error) {
-            console.error('Error updating location:', error);
-            ws.send(JSON.stringify({
-              type: 'location_update_result',
-              success: false,
-              error: 'Failed to update location'
-            });
-          }
-        }
-        
-        // Handle chat message
-        else if (data.type === 'chat_message') {
-          if (!clientInfo || !clientInfo.authenticated) {
-            ws.send(JSON.stringify({
-              type: 'error',
-              code: 'NOT_AUTHENTICATED',
-              message: 'Authentication required'
-            });
-            return;
-          }
-          
-          if (data.recipientId && data.threadId && data.content) {
-            try {
-              // Check if message is encrypted 
-              const isEncrypted = data.isEncrypted === true;
-              
-              // Create a message object
-              const messageData = {
-                threadId: data.threadId,
-                senderId: clientInfo.userId,
-                content: data.content,
-                receiverId: data.recipientId,
-                status: "sent",
-                read: false,
-                isEncrypted
-              };
-              
-              // Generate a unique message ID without storing in database
-              const messageId = `${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
-              const timestamp = Date.now();
-              
-              // Create ephemeral message object
-              const ephemeralMessage = {
-                id: messageId,
-                threadId: data.threadId,
-                senderId: clientInfo.userId,
-                content: data.content,
-                receiverId: data.recipientId,
-                status: "sent",
-                read: false,
-                isEncrypted,
-                createdAt: timestamp,
-                type: 'text'
-              };
-              
-              // Send confirmation to the sender
-              ws.send(JSON.stringify({
-                type: 'message_sent',
-                success: true,
-                messageId,
-                timestamp
-              });
-              
-              // Send the message to the recipient if they're online
-              const delivered = sendToUser(data.recipientId, {
-                type: 'new_message',
-                message: ephemeralMessage,
-                timestamp
-              });
-            } catch (error) {
-              console.error('Error sending chat message:', error);
-              ws.send(JSON.stringify({
-                type: 'message_sent',
-                success: false,
-                error: 'Failed to send message'
-              });
-            }
-          } else {
-            ws.send(JSON.stringify({
-              type: 'error',
-              code: 'INVALID_MESSAGE',
-              message: 'Missing required fields for message'
-            });
-          }
-        }
-        
-        // Handle message read status
-        else if (data.type === 'mark_message_read') {
-          if (!clientInfo || !clientInfo.authenticated) {
-            ws.send(JSON.stringify({
-              type: 'error',
-              code: 'NOT_AUTHENTICATED',
-              message: 'Authentication required'
-            });
-            return;
-          }
-          
-          if (data.messageId) {
-            try {
-              // Update message status in database
-              await storage.markMessageAsRead(data.messageId, clientInfo.userId);
-              
-              // Notify the message sender if they're online
-              const message = await storage.getChatMessageById(data.messageId);
-              if (message) {
-                sendToUser(message.senderId, {
-                  type: 'message_read',
-                  messageId: data.messageId,
-                  threadId: message.threadId,
-                  timestamp: Date.now()
-                });
-              }
-            } catch (error) {
-              console.error('Error marking message as read:', error);
-            }
-          }
-        }
-        
-        // Handle public key sharing for encryption
-        else if (data.type === 'share_public_key') {
-          if (!clientInfo || !clientInfo.authenticated) {
-            ws.send(JSON.stringify({
-              type: 'error',
-              code: 'NOT_AUTHENTICATED',
-              message: 'Authentication required'
-            });
-            return;
-          }
-          
-          if (data.publicKey) {
-            try {
-              // Store the public key in memory
-              const clientInfo = clients.get(ws);
-              if (clientInfo) {
-                clientInfo.publicKey = data.publicKey;
-                clients.set(ws, clientInfo);
-              }
-              
-              // Acknowledge receipt of the public key
-              ws.send(JSON.stringify({
-                type: 'public_key_received',
-                success: true,
-                timestamp: Date.now()
-              });
-              
-              console.log(`Public key received from user ${clientInfo ? clientInfo.userId : 'unknown'}`);
-            } catch (error) {
-              console.error('Error storing public key:', error);
-              ws.send(JSON.stringify({
-                type: 'public_key_received',
-                success: false,
-                error: 'Failed to store public key'
-              });
-            }
-          }
-        }
-        
-        // Handle public key request
-        else if (data.type === 'request_public_key') {
-          if (!clientInfo || !clientInfo.authenticated) {
-            ws.send(JSON.stringify({
-              type: 'error',
-              code: 'NOT_AUTHENTICATED',
-              message: 'Authentication required'
-            });
-            return;
-          }
-          
-          if (data.recipientId) {
-            try {
-              // Find recipient's connection and get their public key
-              let recipientPublicKey = null;
-              
-              // Convert Map entries to array to avoid TypeScript iteration issues
-              const clientsArray = Array.from(clients.entries());
-              for (const [client, info] of clientsArray) {
-                if (info.userId === data.recipientId) {
-                  recipientPublicKey = info.publicKey || null;
-                  break;
-                }
-              }
-              
-              if (recipientPublicKey) {
-                // Send the recipient's public key to the requester
-                ws.send(JSON.stringify({
-                  type: 'public_key',
-                  userId: data.recipientId,
-                  publicKey: recipientPublicKey,
-                  timestamp: Date.now()
-                });
-              } else {
-                // Recipient not found or doesn't have a public key
-                ws.send(JSON.stringify({
-                  type: 'public_key',
-                  userId: data.recipientId,
-                  publicKey: null,
-                  error: 'Public key not available',
-                  timestamp: Date.now()
-                });
-              }
-            } catch (error) {
-              console.error('Error processing public key request:', error);
-              ws.send(JSON.stringify({
-                type: 'public_key',
-                userId: data.recipientId,
-                publicKey: null,
-                error: 'Internal server error',
-                timestamp: Date.now()
-              });
-            }
-          }
-        }
-        
-        // Handle client heartbeat (keeps connection alive)
-        else if (data.type === 'heartbeat') {
-          ws.send(JSON.stringify({
-            type: 'heartbeat_ack',
-            timestamp: Date.now()
-          });
-        }
-      } catch (error) {
-        console.error('Error processing WebSocket message:', error);
-        
-        try {
-          ws.send(JSON.stringify({
-            type: 'error',
-            code: 'INVALID_FORMAT',
-            message: 'Invalid message format'
-          });
-        } catch (sendError) {
-          console.error('Error sending error response:', sendError);
-        }
-      }
-    });
-    
-    // Handle client disconnect
-    ws.on('close', () => {
-      const clientInfo = clients.get(ws);
-      if (clientInfo && clientInfo.userId !== 'unknown') {
-        console.log(`WebSocket client disconnected: ${clientInfo.userId}`);
-        
-        // Update user status to offline in the database
-        try {
-          storage.updateUserStatus(clientInfo.userId, 'offline');
-        } catch (error) {
-          console.error('Error updating user status to offline:', error);
-        }
-      } else {
-        console.log('Unauthenticated WebSocket client disconnected');
-      }
-      
-      clients.delete(ws);
-    });
-    
-    // Handle connection errors
-    ws.on('error', (error) => {
-      console.error('WebSocket error:', error);
-      clients.delete(ws);
-    });
-  });
-  
-  // Function to send a message to a specific user
-  // Returns true if message was delivered, false otherwise
-  function sendToUser(userId: string, data: any): boolean {
-    // Convert Map entries to array to avoid TypeScript iteration issues
-    const clientsArray = Array.from(clients.entries());
-    for (const [client, info] of clientsArray) {
-      if (info.userId === userId && client.readyState === WebSocket.OPEN) {
-        try {
-          client.send(JSON.stringify(data));
-          return true; // Message delivered successfully
-        } catch (error) {
-          console.error(`Error sending message to user ${userId}:`, error);
-          return false;
-        }
-      }
-    }
-    return false; // User not found or not connected
-  }
-  
-  // Function to broadcast to users within a certain distance
-  function broadcastToNearbyUsers(senderId: string, data: any) {
-    // In a real implementation, this would filter users by distance
-    // For now, we'll just broadcast to all authenticated users except the sender
-    // Convert Map entries to array to avoid TypeScript iteration issues
-    const clientsArray = Array.from(clients.entries());
-    for (const [client, info] of clientsArray) {
-      if (info.userId !== 'unknown' && info.userId !== senderId && client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(data));
-      }
-    }
-  }
-
   return httpServer;
 }
