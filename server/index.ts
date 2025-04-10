@@ -43,6 +43,25 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Mount AI routes based on DEFAULT_LLM environment variable
+  const defaultLLM = (process.env.DEFAULT_LLM || 'OPENAI').trim().toUpperCase();
+  console.log(`Using ${defaultLLM} as the default language model`);
+
+  // Set up AI router paths
+  if (defaultLLM === 'OPENAI') {
+    app.use('/api/ai', openaiRouter);
+    console.log('OpenAI API routes mounted at /api/ai');
+  } else if (defaultLLM === 'GEMINI') {
+    app.use('/api/ai', geminiRouter);
+    console.log('Gemini API routes mounted at /api/ai');
+  } else if (defaultLLM === 'CLAUDE') {
+    app.use('/api/ai', anthropicRouter);
+    console.log('Claude API routes mounted at /api/ai');
+  } else {
+    console.warn(`Unknown LLM provider: ${defaultLLM}, falling back to OpenAI`);
+    app.use('/api/ai', openaiRouter);
+  }
+
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

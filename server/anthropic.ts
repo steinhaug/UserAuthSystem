@@ -223,7 +223,12 @@ router.post('/location-search', async (req, res) => {
         ],
       });
       
-      const responseContent = message.content[0].text;
+      // Ensure we're handling the response correctly by checking its structure
+      if (!message.content || message.content.length === 0) {
+        throw new Error('Unexpected response format from Anthropic API');
+      }
+      
+      const responseContent = message.content[0].type === 'text' ? message.content[0].text : '';
       
       try {
         const parsedResponse = JSON.parse(responseContent);
@@ -350,7 +355,12 @@ router.post('/location-suggestions', async (req, res) => {
         ],
       });
       
-      const responseContent = message.content[0].text;
+      // Ensure we're handling the response correctly by checking its structure
+      if (!message.content || message.content.length === 0) {
+        throw new Error('Unexpected response format from Anthropic API');
+      }
+      
+      const responseContent = message.content[0].type === 'text' ? message.content[0].text : '';
       
       try {
         const parsedResponse = JSON.parse(responseContent);
