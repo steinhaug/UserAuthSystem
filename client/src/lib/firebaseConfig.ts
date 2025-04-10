@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getDatabase } from 'firebase/database';
 import { DEVELOPMENT_MODE } from './constants';
 import { initializeFirebaseAppCheck } from './appCheck';
 
@@ -20,6 +21,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const rtdb = getDatabase(app);
 
 // Initialize Firebase App Check (for production only)
 if (!DEVELOPMENT_MODE) {
@@ -38,4 +40,4 @@ if (DEVELOPMENT_MODE) {
   console.log("Firebase initialized with project:", firebaseConfig.projectId);
 }
 
-export { app, auth, db };
+export { app, auth, db, rtdb };

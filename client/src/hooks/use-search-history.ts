@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { queryClient } from '@/lib/queryClient';
 import { InsertSearchHistory, SearchHistory } from '@shared/schema';
 
@@ -64,12 +65,15 @@ export const useNearbySearchSuggestions = () => {
 
 // Hook for getting personalized search suggestions based on user history and preferences
 export const usePersonalizedSuggestions = (limit: number = 10) => {
-  return useQuery<PersonalizedSuggestionsResponse>({
+  const { user } = useAuth() || { user: null };
+  const [firebaseData, setFirebaseData] = useState<PersonalizedSuggestionsResponse | null>(null);
+  
+  // Server-side personalized suggestions
+  const serverQuery = useQuery<PersonalizedSuggestionsResponse>({
     queryKey: ['/api/search/personalized', limit],
     queryFn: async () => {
       try {
-        // Using the built-in queryFn instead of apiRequest directly
-        // This avoids typing issues since queryFn will always return JSON
+        // Using fetch directly to avoid typing issues
         const response = await fetch(`/api/search/personalized?limit=${limit}`, {
           credentials: "include",
           headers: {
@@ -98,6 +102,45 @@ export const usePersonalizedSuggestions = (limit: number = 10) => {
       }
     }
   });
+  
+  // Use Firebase Realtime Database for real-time suggestions
+  useEffect(() => {
+    if (!user?.uid) return;
+    
+    // Import Firebase search functions dynamically to avoid SSR issues
+    import('@/lib/firebaseSearch').then(({ listenToPersonalizedSuggestions }) => {
+      // Set up real-time listener
+      const unsubscribe = listenToPersonalizedSuggestions(user.uid, (data) => {
+        setFirebaseData(data);
+      });
+      
+      // Clean up listener on unmount
+      return () => unsubscribe();
+    });
+  }, [user?.uid]);
+  
+  // Combine server data with Firebase data, preferring Firebase when available
+  const data = useMemo(() => {
+    if (firebaseData) {
+      return firebaseData;
+    }
+    return serverQuery.data || {
+      suggestions: [],
+      trending: [],
+      categories: {
+        favorites: [],
+        timeBased: [],
+        trending: [],
+        preferences: []
+      }
+    };
+  }, [firebaseData, serverQuery.data]);
+  
+  return {
+    ...serverQuery,
+    data,
+    isLoading: serverQuery.isLoading && !firebaseData
+  };
 };
 
 // Hook for saving search history
