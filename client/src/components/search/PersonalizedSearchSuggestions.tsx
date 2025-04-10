@@ -48,10 +48,12 @@ export function PersonalizedSearchSuggestions({
   useEffect(() => {
     if (!personalizedData) return;
     
-    // Check if data came from Firebase by looking for a special property
-    // This is a simple way to detect where the data came from
-    import('@/lib/firebaseSearch').then(({ isRealtimeConnected }) => {
-      isRealtimeConnected().then(connected => {
+    // Check connection status when data is loaded
+    const checkConnectionStatus = async () => {
+      try {
+        const firebaseSearchModule = await import('@/lib/firebaseSearch');
+        const connected = await firebaseSearchModule.isRealtimeConnected();
+        
         setRealtimeStatus(connected ? 'connected' : 'disconnected');
         
         if (connected) {
@@ -63,8 +65,13 @@ export function PersonalizedSearchSuggestions({
             duration: 3000,
           });
         }
-      });
-    });
+      } catch (error) {
+        console.error('Error checking realtime connection status:', error);
+        setRealtimeStatus('disconnected');
+      }
+    };
+    
+    checkConnectionStatus();
   }, [personalizedData, toast]);
   
   const handleSuggestionClick = (suggestion: string) => {

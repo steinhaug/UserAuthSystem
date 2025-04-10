@@ -1,19 +1,22 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchHistory } from '@/hooks/use-search-history';
 import { 
   Card, 
   CardHeader, 
   CardTitle, 
   CardDescription, 
-  CardContent 
+  CardContent, 
+  CardFooter
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Star, StarOff, Clock, MapPin, Calendar } from 'lucide-react';
+import { Star, StarOff, Clock, MapPin, Calendar, CloudUpload, Database, Wifi, CheckCircle2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatDistanceToNow } from 'date-fns';
 import { nb } from 'date-fns/locale';
+import { useToast } from '@/hooks/use-toast';
+import { DEVELOPMENT_MODE } from '@/lib/constants';
 
 interface SearchHistoryProps {
   onSelectSearch?: (query: string) => void;
@@ -27,6 +30,10 @@ export function SearchHistory({
   limit = 20 
 }: SearchHistoryProps) {
   const [activeTab, setActiveTab] = useState('all');
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+  const [isSyncAvailable, setIsSyncAvailable] = useState(false);
+  const [realtimeConnection, setRealtimeConnection] = useState(false);
+  const { toast } = useToast();
   
   const { 
     history, 
@@ -34,6 +41,65 @@ export function SearchHistory({
     toggleFavorite, 
     performSearch 
   } = useSearchHistory(limit);
+  
+  // Check if Firebase sync is available
+  useEffect(() => {
+    const checkSyncStatus = async () => {
+      if (DEVELOPMENT_MODE) {
+        setIsSyncAvailable(false);
+        return;
+      }
+      
+      try {
+        const firebaseSearchModule = await import('@/lib/firebaseSearch');
+        const connected = await firebaseSearchModule.isRealtimeConnected();
+        setRealtimeConnection(connected);
+        setIsSyncAvailable(connected && history.length > 0);
+      } catch (error) {
+        console.error('Error checking Firebase sync status:', error);
+        setIsSyncAvailable(false);
+      }
+    };
+    
+    checkSyncStatus();
+  }, [history]);
+  
+  const syncToFirebase = async () => {
+    if (!isSyncAvailable || DEVELOPMENT_MODE) return;
+    
+    try {
+      setSyncStatus('syncing');
+      
+      const { syncSearchHistoryToFirebase, markSearchDataMigrated } = await import('@/lib/firebaseSearch');
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const userId = user.uid || 'dev-user';
+      
+      // Sync the search history
+      const syncResult = await syncSearchHistoryToFirebase(userId, history);
+      
+      if (syncResult) {
+        // Mark the data as migrated
+        await markSearchDataMigrated(userId);
+        
+        setSyncStatus('synced');
+        toast({
+          title: 'Søkehistorikk synkronisert',
+          description: `${history.length} søk er nå synkronisert til skyen`,
+          variant: 'default',
+        });
+      } else {
+        throw new Error('Kunne ikke synkronisere søkehistorikk');
+      }
+    } catch (error) {
+      console.error('Error syncing to Firebase:', error);
+      setSyncStatus('error');
+      toast({
+        title: 'Synkronisering feilet',
+        description: 'Kunne ikke synkronisere søkehistorikk til skyen',
+        variant: 'destructive',
+      });
+    }
+  };
   
   const handleSearchClick = (query: string) => {
     performSearch(query, 'history_click');

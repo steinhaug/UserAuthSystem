@@ -10,11 +10,38 @@ import {
   limitToLast,
   endAt,
   startAt,
-  equalTo
+  equalTo,
+  serverTimestamp,
+  onDisconnect,
+  connectDatabaseEmulator
 } from 'firebase/database';
 import { rtdb } from './firebaseConfig';
 import { InsertSearchHistory, SearchHistory } from '@shared/schema';
 import { DEVELOPMENT_MODE } from './constants';
+
+// Track real-time connection status
+let realtimeConnected = false;
+
+// Initialize connection monitoring
+const connectedRef = ref(rtdb, '.info/connected');
+
+// Only set up the connection monitoring in production mode
+if (!DEVELOPMENT_MODE) {
+  onValue(connectedRef, (snap) => {
+    realtimeConnected = snap.val() === true;
+    console.log('Firebase Realtime Database connection state:', realtimeConnected ? 'connected' : 'disconnected');
+  });
+}
+
+// Function to check if the realtime database is connected
+export const isRealtimeConnected = async (): Promise<boolean> => {
+  if (DEVELOPMENT_MODE) {
+    return false; // Always return false in development mode
+  }
+  
+  // For production, return the current connection status
+  return realtimeConnected;
+};
 
 // References to database locations
 const searchHistoryRef = ref(rtdb, 'search_history');
@@ -354,4 +381,78 @@ export const listenToPersonalizedSuggestions = (
   
   // Return unsubscribe function
   return unsubscribe;
+};
+
+// Synchronize search history from server to Firebase
+export const syncSearchHistoryToFirebase = async (userId: string, searchHistory: SearchHistory[]) => {
+  if (DEVELOPMENT_MODE) {
+    console.log("Firebase Search: Development mode - not syncing search history to Firebase");
+    return;
+  }
+  
+  try {
+    const historyRef = userSearchHistoryRef(userId);
+    
+    // Create a data structure for the history
+    const historyData: Record<string, any> = {};
+    
+    // Add each history item with a Firebase-friendly ID
+    searchHistory.forEach(item => {
+      const itemId = `search-${item.id}`;
+      historyData[itemId] = {
+        id: item.id,
+        userId: item.userId,
+        query: item.query,
+        type: item.type,
+        timestamp: item.timestamp?.getTime() || Date.now(),
+        favorite: item.favorite || false,
+        successful: item.successful || true,
+      };
+    });
+    
+    // Update all at once
+    await update(historyRef, historyData);
+    console.log(`Synchronized ${searchHistory.length} search history items to Firebase`);
+    
+    return true;
+  } catch (error) {
+    console.error("Error syncing search history to Firebase:", error);
+    return false;
+  }
+};
+
+// Mark that search data has been migrated to Firebase for this user
+export const markSearchDataMigrated = async (userId: string) => {
+  if (DEVELOPMENT_MODE) return;
+  
+  try {
+    const migrationRef = ref(rtdb, `users/${userId}/migration`);
+    await update(migrationRef, {
+      searchHistoryMigrated: true,
+      timestamp: serverTimestamp()
+    });
+    return true;
+  } catch (error) {
+    console.error("Error marking search data as migrated:", error);
+    return false;
+  }
+};
+
+// Check if search data has been migrated to Firebase for this user
+export const isSearchDataMigrated = async (userId: string): Promise<boolean> => {
+  if (DEVELOPMENT_MODE) return false;
+  
+  try {
+    const migrationRef = ref(rtdb, `users/${userId}/migration`);
+    const snapshot = await get(migrationRef);
+    
+    if (snapshot.exists()) {
+      return snapshot.val().searchHistoryMigrated === true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error("Error checking search data migration status:", error);
+    return false;
+  }
 };
