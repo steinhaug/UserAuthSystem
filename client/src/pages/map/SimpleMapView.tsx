@@ -564,23 +564,27 @@ export default function SimpleMapView() {
                 </div>
               )}
               
-              {/* Near Me Now suggestions with tabs to show/hide */}
+              {/* Near Me Now suggestions with side tab to show/hide */}
               {!searchResults.length && (
-                <div className="mt-2">
-                  <Tabs 
-                    value={showNearMeNow} 
-                    onValueChange={(value: 'show' | 'hide') => {
-                      setShowNearMeNow(value);
-                      // Save preference to localStorage
-                      localStorage.setItem('nearMeNowPreference', value);
+                <div className="mt-2 relative">
+                  {/* Vertical tab at left side */}
+                  <button
+                    onClick={() => {
+                      const newValue = showNearMeNow === 'show' ? 'hide' : 'show';
+                      setShowNearMeNow(newValue as 'show' | 'hide');
+                      localStorage.setItem('nearMeNowPreference', newValue);
                     }}
-                    className="w-full"
+                    className={`absolute -left-8 top-8 transform -rotate-90 origin-top-right bg-white/90 text-xs font-medium px-2 py-1 rounded-t-lg shadow-md ${
+                      showNearMeNow === 'show' ? 'text-primary' : 'text-gray-500'
+                    }`}
+                    title={showNearMeNow === 'show' ? 'Skjul nærhetspanel' : 'Vis nærhetspanel'}
                   >
-                    <TabsList className="grid w-full grid-cols-2 mb-2">
-                      <TabsTrigger value="show">Vis i nærheten</TabsTrigger>
-                      <TabsTrigger value="hide">Skjul</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="show" className="m-0">
+                    {showNearMeNow === 'show' ? '▼ Nærhet' : '▲ Nærhet'}
+                  </button>
+                  
+                  {/* Content shows only when tab value is 'show' */}
+                  {showNearMeNow === 'show' && (
+                    <div className="animate-in fade-in duration-300">
                       <NearMeNow 
                         currentLocation={userLocation ? { latitude: userLocation.latitude, longitude: userLocation.longitude } : undefined}
                         onSelectPlace={(place) => {
@@ -590,11 +594,8 @@ export default function SimpleMapView() {
                           }
                         }}
                       />
-                    </TabsContent>
-                    <TabsContent value="hide" className="m-0 p-2 text-center text-sm text-gray-500">
-                      Forslag i nærheten er skjult
-                    </TabsContent>
-                  </Tabs>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
