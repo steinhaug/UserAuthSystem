@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VoiceSearch } from "@/components/map/VoiceSearch";
 import { LocationSearch } from "@/components/map/LocationSearch";
 import { NearMeNow } from "@/components/map/NearMeNow";
@@ -268,6 +269,11 @@ export default function SimpleMapView() {
   
   const [isSearching, setIsSearching] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<number | null>(null);
+  const [showNearMeNow, setShowNearMeNow] = useState<'show' | 'hide'>(() => {
+    // Try to get saved preference from localStorage
+    const savedPreference = localStorage.getItem('nearMeNowPreference');
+    return savedPreference === 'hide' ? 'hide' : 'show';
+  });
   
   // Handle search for a location
   const handleLocationSearch = async (results: Array<{
@@ -558,18 +564,37 @@ export default function SimpleMapView() {
                 </div>
               )}
               
-              {/* Near Me Now suggestions */}
+              {/* Near Me Now suggestions with tabs to show/hide */}
               {!searchResults.length && (
                 <div className="mt-2">
-                  <NearMeNow 
-                    currentLocation={userLocation ? { latitude: userLocation.latitude, longitude: userLocation.longitude } : undefined}
-                    onSelectPlace={(place) => {
-                      if (place.name && map.current && userLocation) {
-                        // Create a search for this place
-                        handleSearch(place.name);
-                      }
+                  <Tabs 
+                    value={showNearMeNow} 
+                    onValueChange={(value: 'show' | 'hide') => {
+                      setShowNearMeNow(value);
+                      // Save preference to localStorage
+                      localStorage.setItem('nearMeNowPreference', value);
                     }}
-                  />
+                    className="w-full"
+                  >
+                    <TabsList className="grid w-full grid-cols-2 mb-2">
+                      <TabsTrigger value="show">Vis i nærheten</TabsTrigger>
+                      <TabsTrigger value="hide">Skjul</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="show" className="m-0">
+                      <NearMeNow 
+                        currentLocation={userLocation ? { latitude: userLocation.latitude, longitude: userLocation.longitude } : undefined}
+                        onSelectPlace={(place) => {
+                          if (place.name && map.current && userLocation) {
+                            // Create a search for this place
+                            handleSearch(place.name);
+                          }
+                        }}
+                      />
+                    </TabsContent>
+                    <TabsContent value="hide" className="m-0 p-2 text-center text-sm text-gray-500">
+                      Forslag i nærheten er skjult
+                    </TabsContent>
+                  </Tabs>
                 </div>
               )}
             </div>
