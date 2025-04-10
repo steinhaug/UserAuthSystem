@@ -1,32 +1,11 @@
-import { Express, Request, Response, NextFunction, RequestHandler } from "express";
-import { createServer, Server } from "http";
-import { WebSocketServer, WebSocket } from "ws";
-import * as admin from "firebase-admin";
-import * as firebaseAdmin from "firebase-admin";
-import { createHash, timingSafeEqual } from "crypto";
-import multer from "multer";
+import express, { Express, Request, Response, NextFunction, RequestHandler } from "express";
+import { createServer, type Server } from "http";
+import { WebSocketServer } from "ws";
 import path from "path";
-import fetch from "node-fetch";
-import { 
-  User, Activity, InsertActivity, ActivityParticipant,
-  insertSearchHistorySchema, insertSearchPreferencesSchema 
-} from "@shared/schema";
-import { storage } from "./storage";
+import admin from "firebase-admin";
 import { log as serverLog } from "./vite";
-import { upload, getFileUrl, generateThumbnail } from "./upload";
-// import { openaiRouter } from "./openai";
-
-// Initialize Firebase Admin SDK
-try {
-  if (firebaseAdmin.apps && firebaseAdmin.apps.length === 0) {
-    firebaseAdmin.initializeApp({
-      projectId: "comemingel"
-    });
-    console.log("Firebase Admin initialized successfully");
-  }
-} catch (error) {
-  console.error("Firebase Admin initialization error:", error);
-}
+import { storage } from "./storage";
+import { insertSearchHistorySchema, insertSearchPreferencesSchema } from "@shared/schema";
 
 export enum ApiErrorCode {
   VALIDATION_ERROR = "validation_error",
@@ -122,7 +101,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Define a function for logging with consistent format
   function log(message: string, level: 'info' | 'warn' | 'error' = 'info') {
-    const timestamp = new Date().toISOString();
     serverLog(message, 'routes');
   }
 
@@ -168,224 +146,270 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Reputation system routes
   
   // Get reputation profile for a user
-  app.get('/api/reputation/:userId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/reputation/:userId', authenticateUser, (req: Request, res: Response) => {
+    const authReq = req as AuthenticatedRequest;
     try {
-      const { userId } = req.params;
-      const reputation = await storage.getUserReputation(userId);
-      
-      if (!reputation) {
-        return sendErrorResponse(res, "User reputation not found", ApiErrorCode.NOT_FOUND);
-      }
-      
-      res.json({ reputation });
+      const { userId } = authReq.params;
+      storage.getUserReputation(userId)
+        .then((reputation) => {
+          if (!reputation) {
+            return sendErrorResponse(res, "User reputation not found", 404, ApiErrorCode.NOT_FOUND);
+          }
+          res.json({ reputation });
+        })
+        .catch((error) => {
+          log(`Error getting reputation: ${error}`, 'error');
+          return sendErrorResponse(res, "Failed to get reputation data", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
+        });
     } catch (error) {
       log(`Error getting reputation: ${error}`, 'error');
-      return sendErrorResponse(res, "Failed to get reputation data", ApiErrorCode.INTERNAL_SERVER_ERROR);
+      return sendErrorResponse(res, "Failed to get reputation data", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
     }
   });
 
   // Get reputation events for a user
-  app.get('/api/reputation/:userId/events', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/reputation/:userId/events', authenticateUser, (req: Request, res: Response) => {
+    const authReq = req as AuthenticatedRequest;
     try {
-      const { userId } = req.params;
-      const limit = req.query.limit ? Number(req.query.limit) : 20;
+      const { userId } = authReq.params;
+      const limit = authReq.query.limit ? Number(authReq.query.limit) : 20;
       
       // Only allow users to view their own reputation events
-      if (userId !== req.user.uid) {
-        return sendErrorResponse(res, "Unauthorized access to reputation events", ApiErrorCode.UNAUTHORIZED);
+      if (userId !== authReq.user.uid) {
+        return sendErrorResponse(res, "Unauthorized access to reputation events", 401, ApiErrorCode.UNAUTHORIZED);
       }
       
-      const events = await storage.getReputationEvents(userId, limit);
-      const eventTypes = await storage.getReputationEventTypes();
-      
-      res.json({ events, eventTypes });
+      Promise.all([
+        storage.getReputationEvents(userId, limit),
+        storage.getReputationEventTypes()
+      ]).then(([events, eventTypes]) => {
+        res.json({ events, eventTypes });
+      }).catch((error) => {
+        log(`Error getting reputation events: ${error}`, 'error');
+        return sendErrorResponse(res, "Failed to get reputation events", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
+      });
     } catch (error) {
       log(`Error getting reputation events: ${error}`, 'error');
-      return sendErrorResponse(res, "Failed to get reputation events", ApiErrorCode.INTERNAL_SERVER_ERROR);
+      return sendErrorResponse(res, "Failed to get reputation events", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
     }
   });
 
   // Get trust connections for a user
-  app.get('/api/trust/:userId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/trust/:userId', authenticateUser, (req: Request, res: Response) => {
+    const authReq = req as AuthenticatedRequest;
     try {
-      const { userId } = req.params;
+      const { userId } = authReq.params;
       
-      // Get trust connections
-      const trusted = await storage.getTrustConnections(userId, false);
-      const trustedBy = await storage.getTrustConnections(userId, true);
-      
-      res.json({ trusted, trustedBy });
+      Promise.all([
+        storage.getTrustConnections(userId, false),
+        storage.getTrustConnections(userId, true)
+      ]).then(([trusted, trustedBy]) => {
+        res.json({ trusted, trustedBy });
+      }).catch((error) => {
+        log(`Error getting trust connections: ${error}`, 'error');
+        return sendErrorResponse(res, "Failed to get trust connections", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
+      });
     } catch (error) {
       log(`Error getting trust connections: ${error}`, 'error');
-      return sendErrorResponse(res, "Failed to get trust connections", ApiErrorCode.INTERNAL_SERVER_ERROR);
+      return sendErrorResponse(res, "Failed to get trust connections", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
     }
   });
 
   // Create new trust connection
-  app.post('/api/trust', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/trust', authenticateUser, (req: Request, res: Response) => {
+    const authReq = req as AuthenticatedRequest;
     try {
-      const { trustedId, level, notes } = req.body;
+      const { trustedId, level, notes } = authReq.body;
       
       if (!trustedId || !level) {
-        return sendErrorResponse(res, "Missing required fields", ApiErrorCode.VALIDATION_ERROR);
+        return sendErrorResponse(res, "Missing required fields", 400, ApiErrorCode.VALIDATION_ERROR);
       }
       
       // Make sure the user is not trying to trust themselves
-      if (trustedId === req.user.uid) {
-        return sendErrorResponse(res, "Cannot create trust connection with yourself", ApiErrorCode.VALIDATION_ERROR);
+      if (trustedId === authReq.user.uid) {
+        return sendErrorResponse(res, "Cannot create trust connection with yourself", 400, ApiErrorCode.VALIDATION_ERROR);
       }
       
       // Check if a connection already exists
-      const existingConnections = await storage.getTrustConnections(req.user.uid);
-      const alreadyExists = existingConnections.some(conn => conn.trustedId === trustedId);
-      
-      if (alreadyExists) {
-        return sendErrorResponse(res, "Trust connection already exists", ApiErrorCode.CONFLICT);
-      }
-      
-      // Create the trust connection
-      const connection = await storage.createTrustConnection({
-        trusterId: req.user.uid,
-        trustedId,
-        level,
-        notes
+      storage.getTrustConnections(authReq.user.uid).then((existingConnections) => {
+        const alreadyExists = existingConnections.some(conn => conn.trustedId === trustedId);
+        
+        if (alreadyExists) {
+          return sendErrorResponse(res, "Trust connection already exists", 409, ApiErrorCode.CONFLICT);
+        }
+        
+        // Create the trust connection
+        storage.createTrustConnection({
+          trusterId: authReq.user.uid,
+          trustedId,
+          level,
+          notes
+        }).then((connection) => {
+          res.status(201).json({ connection });
+        }).catch((error) => {
+          log(`Error creating trust connection: ${error}`, 'error');
+          return sendErrorResponse(res, "Failed to create trust connection", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
+        });
+      }).catch((error) => {
+        log(`Error checking existing trust connections: ${error}`, 'error');
+        return sendErrorResponse(res, "Failed to create trust connection", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
       });
-      
-      res.status(201).json({ connection });
     } catch (error) {
       log(`Error creating trust connection: ${error}`, 'error');
-      return sendErrorResponse(res, "Failed to create trust connection", ApiErrorCode.INTERNAL_SERVER_ERROR);
+      return sendErrorResponse(res, "Failed to create trust connection", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
     }
   });
 
   // Update trust connection
-  app.patch('/api/trust/:trustedId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  app.patch('/api/trust/:trustedId', authenticateUser, (req: Request, res: Response) => {
+    const authReq = req as AuthenticatedRequest;
     try {
-      const { trustedId } = req.params;
-      const { level, notes } = req.body;
+      const { trustedId } = authReq.params;
+      const { level, notes } = authReq.body;
       
       if (!level) {
-        return sendErrorResponse(res, "Missing required fields", ApiErrorCode.VALIDATION_ERROR);
+        return sendErrorResponse(res, "Missing required fields", 400, ApiErrorCode.VALIDATION_ERROR);
       }
       
       // Update the trust connection
-      const connection = await storage.updateTrustConnection(
-        req.user.uid,
+      storage.updateTrustConnection(
+        authReq.user.uid,
         trustedId,
         level,
         notes
-      );
-      
-      if (!connection) {
-        return sendErrorResponse(res, "Trust connection not found", ApiErrorCode.NOT_FOUND);
-      }
-      
-      res.json({ connection });
+      ).then((connection) => {
+        if (!connection) {
+          return sendErrorResponse(res, "Trust connection not found", 404, ApiErrorCode.NOT_FOUND);
+        }
+        
+        res.json({ connection });
+      }).catch((error) => {
+        log(`Error updating trust connection: ${error}`, 'error');
+        return sendErrorResponse(res, "Failed to update trust connection", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
+      });
     } catch (error) {
       log(`Error updating trust connection: ${error}`, 'error');
-      return sendErrorResponse(res, "Failed to update trust connection", ApiErrorCode.INTERNAL_SERVER_ERROR);
+      return sendErrorResponse(res, "Failed to update trust connection", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
     }
   });
 
   // Delete trust connection
-  app.delete('/api/trust/:trustedId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  app.delete('/api/trust/:trustedId', authenticateUser, (req: Request, res: Response) => {
+    const authReq = req as AuthenticatedRequest;
     try {
-      const { trustedId } = req.params;
+      const { trustedId } = authReq.params;
       
       // Get trust connections for the user
-      const connections = await storage.getTrustConnections(req.user.uid);
-      
-      // Find the connection to delete
-      const connectionToDelete = connections.find(conn => conn.trustedId === trustedId);
-      
-      if (!connectionToDelete) {
-        return sendErrorResponse(res, "Trust connection not found", ApiErrorCode.NOT_FOUND);
-      }
-      
-      // Delete the trust connection
-      await storage.deleteTrustConnection(connectionToDelete.id);
-      
-      res.status(204).send();
+      storage.getTrustConnections(authReq.user.uid).then((connections) => {
+        // Find the connection to delete
+        const connectionToDelete = connections.find(conn => conn.trustedId === trustedId);
+        
+        if (!connectionToDelete) {
+          return sendErrorResponse(res, "Trust connection not found", 404, ApiErrorCode.NOT_FOUND);
+        }
+        
+        // Delete the trust connection
+        storage.deleteTrustConnection(connectionToDelete.id).then(() => {
+          res.status(204).send();
+        }).catch((error) => {
+          log(`Error deleting trust connection: ${error}`, 'error');
+          return sendErrorResponse(res, "Failed to delete trust connection", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
+        });
+      }).catch((error) => {
+        log(`Error finding trust connection to delete: ${error}`, 'error');
+        return sendErrorResponse(res, "Failed to delete trust connection", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
+      });
     } catch (error) {
       log(`Error deleting trust connection: ${error}`, 'error');
-      return sendErrorResponse(res, "Failed to delete trust connection", ApiErrorCode.INTERNAL_SERVER_ERROR);
+      return sendErrorResponse(res, "Failed to delete trust connection", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
     }
   });
 
   // Create user rating
-  app.post('/api/ratings', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/ratings', authenticateUser, (req: Request, res: Response) => {
+    const authReq = req as AuthenticatedRequest;
     try {
-      const { receiverId, score, comment, context, referenceId, isAnonymous } = req.body;
+      const { receiverId, score, comment, context, referenceId, isAnonymous } = authReq.body;
       
       if (!receiverId || !score || !context) {
-        return sendErrorResponse(res, "Missing required fields", ApiErrorCode.VALIDATION_ERROR);
+        return sendErrorResponse(res, "Missing required fields", 400, ApiErrorCode.VALIDATION_ERROR);
       }
       
       // Make sure the user is not trying to rate themselves
-      if (receiverId === req.user.uid) {
-        return sendErrorResponse(res, "Cannot rate yourself", ApiErrorCode.VALIDATION_ERROR);
+      if (receiverId === authReq.user.uid) {
+        return sendErrorResponse(res, "Cannot rate yourself", 400, ApiErrorCode.VALIDATION_ERROR);
       }
       
       // Create the rating
-      const rating = await storage.createUserRating({
-        giverId: req.user.uid,
+      storage.createUserRating({
+        giverId: authReq.user.uid,
         receiverId,
         score,
         comment,
         context,
         referenceId,
         isAnonymous: isAnonymous || false
+      }).then((rating) => {
+        res.status(201).json({ rating });
+      }).catch((error) => {
+        log(`Error creating user rating: ${error}`, 'error');
+        return sendErrorResponse(res, "Failed to create user rating", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
       });
-      
-      res.status(201).json({ rating });
     } catch (error) {
       log(`Error creating user rating: ${error}`, 'error');
-      return sendErrorResponse(res, "Failed to create user rating", ApiErrorCode.INTERNAL_SERVER_ERROR);
+      return sendErrorResponse(res, "Failed to create user rating", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
     }
   });
 
   // Get ratings for a user
-  app.get('/api/ratings/:userId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/ratings/:userId', authenticateUser, (req: Request, res: Response) => {
+    const authReq = req as AuthenticatedRequest;
     try {
-      const { userId } = req.params;
-      const asReceiver = req.query.asReceiver !== 'false'; // Default to true
+      const { userId } = authReq.params;
+      const asReceiver = authReq.query.asReceiver !== 'false'; // Default to true
       
-      const ratings = await storage.getUserRatings(userId, asReceiver);
-      
-      // If requesting received ratings, exclude anonymous ratings unless it's the user's own profile
-      const filteredRatings = asReceiver && userId !== req.user.uid
-        ? ratings.filter(rating => !rating.isAnonymous)
-        : ratings;
-      
-      res.json({ ratings: filteredRatings });
+      storage.getUserRatings(userId, asReceiver).then((ratings) => {
+        // If requesting received ratings, exclude anonymous ratings unless it's the user's own profile
+        const filteredRatings = asReceiver && userId !== authReq.user.uid
+          ? ratings.filter(rating => !rating.isAnonymous)
+          : ratings;
+        
+        res.json({ ratings: filteredRatings });
+      }).catch((error) => {
+        log(`Error getting user ratings: ${error}`, 'error');
+        return sendErrorResponse(res, "Failed to get user ratings", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
+      });
     } catch (error) {
       log(`Error getting user ratings: ${error}`, 'error');
-      return sendErrorResponse(res, "Failed to get user ratings", ApiErrorCode.INTERNAL_SERVER_ERROR);
+      return sendErrorResponse(res, "Failed to get user ratings", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
     }
   });
 
   // Search users endpoint (for trust connections)
-  app.get('/api/users/search', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/users/search', authenticateUser, (req: Request, res: Response) => {
+    const authReq = req as AuthenticatedRequest;
     try {
-      const query = req.query.q as string;
+      const query = authReq.query.q as string;
       
       if (!query || query.length < 2) {
         return res.json({ users: [] });
       }
       
       // Search for users
-      const users = await storage.searchUsers(query, 10);
-      
-      // Exclude the current user from results
-      const filteredUsers = users.filter(user => user.firebaseId !== req.user.uid);
-      
-      res.json({ users: filteredUsers });
+      storage.searchUsers(query, 10).then((users) => {
+        // Exclude the current user from results
+        const filteredUsers = users.filter(user => user.firebaseId !== authReq.user.uid);
+        
+        res.json({ users: filteredUsers });
+      }).catch((error) => {
+        log(`Error searching users: ${error}`, 'error');
+        return sendErrorResponse(res, "Failed to search users", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
+      });
     } catch (error) {
       log(`Error searching users: ${error}`, 'error');
-      return sendErrorResponse(res, "Failed to search users", ApiErrorCode.INTERNAL_SERVER_ERROR);
+      return sendErrorResponse(res, "Failed to search users", 500, ApiErrorCode.INTERNAL_SERVER_ERROR);
     }
   });
-
   
   // Serve public files from uploads directory
   app.get("/uploads/:fileId", (req, res, next) => {
@@ -395,463 +419,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     next();
   });
-  
 
-
-  // Mount the OpenAI router - commented out for now
-  // app.use('/api/openai', openaiRouter);
-  
-  // API endpoint for activity recommendations
-  app.get('/api/recommendations', authenticateUser, withAuth(async (req, res) => {
-    try {
-      const recommendations = await storage.getActivityRecommendationsForUser(req.user.uid);
-      return res.json({ recommendations });
-    } catch (error) {
-      return handleApiDatabaseError(res, error);
-    }
-  }));
-  
-  // API endpoint for generating new recommendations
-  app.post('/api/recommendations/generate', authenticateUser, withAuth(async (req, res) => {
-    try {
-      const recommendations = await storage.generateRecommendationsForUser(req.user.uid);
-      return res.json({ recommendations });
-    } catch (error) {
-      return handleApiDatabaseError(res, error);
-    }
-  }));
-  
-  // API endpoint for updating recommendation status
-  app.patch('/api/recommendations/:id/status', authenticateUser, withAuth(async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      const { status } = req.body;
-      
-      if (!status || !['pending', 'accepted', 'rejected', 'saved'].includes(status)) {
-        return sendErrorResponse(
-          res,
-          "Invalid status value",
-          "400",
-          ApiErrorCode.VALIDATION_ERROR,
-          { accepted_values: ['pending', 'accepted', 'rejected', 'saved'] }
-        );
-      }
-      
-      const updatedRecommendation = await storage.updateActivityRecommendationStatus(id, status);
-      return res.json({ recommendation: updatedRecommendation });
-    } catch (error) {
-      return handleApiDatabaseError(res, error);
-    }
-  }));
-  
-  // Search history endpoints
-  app.get('/api/search/history', authenticateUser, withAuth(async (req, res) => {
-    try {
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
-      const history = await storage.getUserSearchHistory(req.user.uid, limit);
-      return res.json({ history });
-    } catch (error) {
-      return handleApiDatabaseError(res, error);
-    }
-  }));
-
-  app.post('/api/search/save', authenticateUser, withAuth(async (req, res) => {
-    try {
-      const searchData = req.body;
-      
-      // Make sure user ID is set correctly
-      const searchDataWithUser = {
-        ...searchData,
-        userId: req.user.uid
-      };
-      
-      try {
-        insertSearchHistorySchema.parse(searchDataWithUser);
-      } catch (validationError) {
-        log(`Invalid search data: ${JSON.stringify(validationError)}`, 'error');
-        return sendErrorResponse(
-          res,
-          "Invalid search data",
-          "400",
-          ApiErrorCode.VALIDATION_ERROR,
-          validationError
-        );
-      }
-      
-      // Check if user exists in database first
-      const user = await storage.getUserByFirebaseId(req.user.uid);
-      if (!user) {
-        log(`User ${req.user.uid} not found in database when saving search history. Attempting to create dev user.`, 'warn');
-        
-        // In development mode, try to create a dev user if it doesn't exist
-        if (req.user.uid === 'dev-user-id') {
-          try {
-            // Create a dev user if it doesn't exist
-            await storage.createUser({
-              firebaseId: 'dev-user-id',
-              username: 'dev_user',
-              email: 'dev@example.com',
-              displayName: 'Dev User'
-              // Schema doesn't include password field
-            });
-            log('Created dev user for search history', 'info');
-          } catch (error: any) {
-            // Ignore duplicate key errors (user might have been created by another request)
-            if (error.code !== 'UNIQUE_CONSTRAINT') {
-              log(`Failed to create dev user: ${error.message}`, 'error');
-              return sendErrorResponse(
-                res,
-                "Cannot save search history: failed to create user",
-                "500",
-                ApiErrorCode.INTERNAL_SERVER_ERROR
-              );
-            }
-          }
-        } else {
-          return sendErrorResponse(
-            res,
-            "User not found",
-            "404",
-            ApiErrorCode.NOT_FOUND
-          );
-        }
-      }
-      
-      const searchHistory = await storage.saveSearchHistory(searchDataWithUser);
-      return res.status(201).json({ searchHistory });
-    } catch (error: any) {
-      log(`Error saving search history: ${error.message}`, 'error');
-      return handleApiDatabaseError(res, error);
-    }
-  }));
-
-  app.get('/api/search/suggestions', authenticateUser, withAuth(async (req, res) => {
-    try {
-      const prefix = req.query.q as string || '';
-      if (!prefix) {
-        return res.json({ suggestions: [] });
-      }
-      
-      const suggestions = await storage.getSearchSuggestions(req.user.uid, prefix);
-      return res.json({ suggestions });
-    } catch (error) {
-      return handleApiDatabaseError(res, error);
-    }
-  }));
-  
-  // Get nearby search suggestions based on user location and popular searches
-  app.get('/api/search/nearby', authenticateUser, withAuth(async (req, res) => {
-    try {
-      const userId = req.user.uid;
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : 6;
-      
-      // These would normally come from database based on location
-      // For now using hardcoded suggestions relevant to Norwegian users
-      const suggestions = [
-        "Plogging i Frognerparken",
-        "Joggegruppe Majorstuen",
-        "Kajakk ved Bygdøy",
-        "Yoga i Slottsparken",
-        "Fotballtrening Voldsløkka",
-        "Fjelltur Holmenkollen"
-      ].slice(0, limit);
-      
-      return res.json({ suggestions });
-    } catch (error) {
-      return handleApiDatabaseError(res, error);
-    }
-  }));
-  
-  // Get personalized search suggestions based on user history and behavior
-  app.get('/api/search/personalized', authenticateUser, withAuth(async (req, res) => {
-    try {
-      const userId = req.user.uid;
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
-      
-      // Step 1: Get user's search history
-      const userHistory = await storage.getUserSearchHistory(userId, 50);
-      
-      // Step 2: Get user's activity preferences if available
-      let userPreferences;
-      try {
-        userPreferences = await storage.getUserActivityPreferences(userId);
-      } catch (e) {
-        console.log("Activity preferences not found for user");
-      }
-      
-      // Step 3: Generate personalized suggestions
-      
-      // Extract frequent search terms from user history
-      const searchTerms = userHistory.map(item => item.query);
-      const searchTypes = userHistory
-        .filter(item => item.type)
-        .map(item => item.type);
-      
-      // Count frequency of searches
-      const termFrequency: Record<string, number> = {};
-      searchTerms.forEach(term => {
-        termFrequency[term] = (termFrequency[term] || 0) + 1;
-      });
-      
-      // Count frequency of search types
-      const typeFrequency: Record<string, number> = {};
-      searchTypes.forEach(type => {
-        if (type) {
-          typeFrequency[type] = (typeFrequency[type] || 0) + 1;
-        }
-      });
-      
-      // Filter favorite searches
-      const favorites = userHistory
-        .filter(item => item.favorite)
-        .map(item => item.query);
-      
-      // Generate time-based suggestions
-      const hour = new Date().getHours();
-      const timeBasedSuggestions: string[] = [];
-      
-      // Morning suggestions
-      if (hour >= 6 && hour < 11) {
-        timeBasedSuggestions.push('Morgentrening', 'Frokost-treff', 'Joggetur');
-      }
-      // Lunch suggestions
-      else if (hour >= 11 && hour < 14) {
-        timeBasedSuggestions.push('Lunsj-treff', 'Shopping-tur', 'Kaffepauser');
-      }
-      // Afternoon suggestions
-      else if (hour >= 14 && hour < 18) {
-        timeBasedSuggestions.push('Ettermiddagstur', 'Studiegruppe', 'Fotball');
-      }
-      // Evening suggestions
-      else {
-        timeBasedSuggestions.push('Middag ute', 'Kveldstrening', 'Filmkveld');
-      }
-      
-      // Include preferences-based suggestions if available
-      const preferencesBasedSuggestions: string[] = [];
-      if (userPreferences) {
-        const preferredCategories = userPreferences.preferredCategories || [];
-        const preferredTimeOfDay = userPreferences.preferredTimeOfDay || [];
-        
-        // Map activity types to suggestions based on preferred categories
-        if (preferredCategories.includes('outdoor')) {
-          preferencesBasedSuggestions.push('Friluftsliv', 'Fjelltur', 'Sykling');
-        }
-        if (preferredCategories.includes('sports')) {
-          preferencesBasedSuggestions.push('Fotball', 'Basketball', 'Tennis');
-        }
-        if (preferredCategories.includes('cultural')) {
-          preferencesBasedSuggestions.push('Museum', 'Konserter', 'Kunstutstilling');
-        }
-        if (preferredCategories.includes('social')) {
-          preferencesBasedSuggestions.push('Kaffetreff', 'Middag ute', 'Filmkveld');
-        }
-      }
-      
-      // Trending or popular searches (could be from global stats in a real implementation)
-      const trendingSuggestions = [
-        'Plogging', 
-        'Kajakktur',
-        'Fotballkamp',
-        'Løpetrening',
-        'Yogaklasse',
-        'Sykkeltur'
-      ];
-      
-      // Combine all suggestions, prioritizing favorites and frequent searches
-      let personalizedSuggestions = [
-        ...favorites,
-        ...Object.keys(termFrequency)
-          .sort((a, b) => termFrequency[b] - termFrequency[a])
-          .slice(0, 5),
-        ...preferencesBasedSuggestions,
-        ...timeBasedSuggestions,
-        ...trendingSuggestions
-      ];
-      
-      // Remove duplicates
-      personalizedSuggestions = Array.from(new Set(personalizedSuggestions));
-      
-      // Return limited results
-      return res.json({ 
-        suggestions: personalizedSuggestions.slice(0, limit),
-        trending: trendingSuggestions.slice(0, 3),
-        categories: {
-          favorites: favorites.slice(0, 3),
-          timeBased: timeBasedSuggestions.slice(0, 3),
-          trending: trendingSuggestions.slice(0, 3),
-          preferences: preferencesBasedSuggestions.slice(0, 3)
-        }
-      });
-    } catch (error) {
-      return handleApiDatabaseError(res, error);
-    }
-  }));
-
-  app.get('/api/search/preferences', authenticateUser, withAuth(async (req, res) => {
-    try {
-      const preferences = await storage.getUserSearchPreferences(req.user.uid);
-      return res.json({ preferences: preferences || {} });
-    } catch (error) {
-      return handleApiDatabaseError(res, error);
-    }
-  }));
-
-  app.post('/api/search/preferences', authenticateUser, withAuth(async (req, res) => {
-    try {
-      const userPreferences = req.body;
-      
-      // Check if user already has preferences
-      const existingPreferences = await storage.getUserSearchPreferences(req.user.uid);
-      
-      let preferences;
-      if (existingPreferences) {
-        // Update existing preferences
-        preferences = await storage.updateSearchPreferences(req.user.uid, userPreferences);
-      } else {
-        // Create new preferences
-        try {
-          insertSearchPreferencesSchema.parse({
-            ...userPreferences,
-            userId: req.user.uid
-          });
-        } catch (validationError) {
-          log(`Invalid search preferences: ${JSON.stringify(validationError)}`, 'error');
-          return sendErrorResponse(
-            res,
-            "Invalid search preferences data",
-            "400",
-            ApiErrorCode.VALIDATION_ERROR,
-            validationError
-          );
-        }
-        
-        preferences = await storage.createSearchPreferences({
-          ...userPreferences,
-          userId: req.user.uid
-        });
-      }
-      
-      return res.json({ preferences });
-    } catch (error) {
-      return handleApiDatabaseError(res, error);
-    }
-  }));
-
-  // Near-me search endpoint
-  app.get('/api/search/near-me', authenticateUser, withAuth(async (req, res) => {
-    try {
-      const latitude = req.query.lat ? parseFloat(req.query.lat as string) : null;
-      const longitude = req.query.lng ? parseFloat(req.query.lng as string) : null;
-      const radius = req.query.radius ? parseInt(req.query.radius as string) : 5;
-      
-      if (!latitude || !longitude) {
-        return sendErrorResponse(
-          res,
-          "Missing location coordinates",
-          "400", 
-          ApiErrorCode.VALIDATION_ERROR
-        );
-      }
-      
-      // Check if user exists in database
-      const user = await storage.getUserByFirebaseId(req.user.uid);
-      if (!user) {
-        log(`User ${req.user.uid} not found in database when performing near-me search`, 'warn');
-        
-        // Don't try to save preferences or history if user doesn't exist
-        // Just return results
-        return res.json({ 
-          results: [],
-          location: { latitude, longitude },
-          radius
-        });
-      }
-      
-      // Update user's last location in search preferences
-      const userPrefs = await storage.getUserSearchPreferences(req.user.uid);
-      if (userPrefs) {
-        await storage.updateSearchPreferences(req.user.uid, {
-          lastLocation: { latitude, longitude }
-        });
-      }
-      
-      // Save search to history
-      await storage.saveSearchHistory({
-        userId: req.user.uid,
-        query: "nearby",
-        latitude: latitude.toString(),
-        longitude: longitude.toString(),
-        type: "map_search",
-        successful: true
-      });
-      
-      // For now returning eksempeldata - i en fremtidig implementasjon
-      // ville dette faktisk søke etter brukere eller aktiviteter i nærheten
-      const mockResults = [
-        {
-          name: "Plogging i Frognerparken",
-          type: "Aktivitet",
-          description: "Bli med på miljøvennlig jogging mens vi plukker søppel i Frognerparken",
-          distance: "1.2 km"
-        },
-        {
-          name: "Kajakkpadling ved Bygdøy",
-          type: "Vannsport",
-          description: "Rolig kajakktur langs Bygdøy med fokus på naturopplevelser og fotografering",
-          distance: "1.8 km"
-        },
-        {
-          name: "Yoga i Slottsparken",
-          type: "Trening",
-          description: "Utendørs yoga for alle nivåer. Ta med egen matte!",
-          distance: "0.5 km"
-        }
-      ];
-      
-      return res.json({ 
-        results: mockResults,
-        location: { latitude, longitude },
-        radius
-      });
-    } catch (error: any) {
-      log(`Error performing near-me search: ${error.message}`, 'error');
-      return handleApiDatabaseError(res, error);
-    }
-  }));
-  
-  app.patch('/api/search/history/:id', authenticateUser, withAuth(async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      const updateData = req.body;
-      
-      // Ensure user can only update their own search history
-      const historyItem = await storage.getSearchHistoryItem(id);
-      if (!historyItem) {
-        return sendErrorResponse(
-          res, 
-          "Search history item not found", 
-          "404", 
-          ApiErrorCode.NOT_FOUND
-        );
-      }
-      
-      if (historyItem.userId !== req.user.uid) {
-        return sendErrorResponse(
-          res,
-          "You don't have permission to update this search history item",
-          "403",
-          ApiErrorCode.FORBIDDEN
-        );
-      }
-      
-      const updatedHistory = await storage.updateSearchHistoryItem(id, updateData);
-      return res.json({ history: updatedHistory });
-    } catch (error) {
-      return handleApiDatabaseError(res, error);
-    }
-  }));
-  
   const httpServer = createServer(app);
   
   // Initialize WebSocket server on the same HTTP server but on a different path

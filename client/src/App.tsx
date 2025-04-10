@@ -23,6 +23,7 @@ import ChallengesView from "@/pages/challenges/ChallengesView";
 import ProfileView from "@/pages/profile/ProfileView";
 import ChatConversation from "@/pages/chat/ChatConversation";
 import SearchPage from "@/pages/search";
+import ReputationPage from "@/pages/reputation-page";
 
 function App() {
   return (
@@ -145,6 +146,14 @@ function App() {
                 {() => (
                   <AppLayout>
                     <SearchPage />
+                  </AppLayout>
+                )}
+              </Route>
+              
+              <Route path="/reputation">
+                {() => (
+                  <AppLayout>
+                    <ReputationPage />
                   </AppLayout>
                 )}
               </Route>
