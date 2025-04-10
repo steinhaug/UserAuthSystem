@@ -13,9 +13,11 @@ if (typeof window !== 'undefined') {
   // Override the WebSocket constructor to prevent connecting to undefined URLs
   // @ts-ignore
   window.WebSocket = function(url, protocols) {
-    // Catch only Vite's HMR WebSocket connection to undefined port
+    // Catch Vite's HMR WebSocket connections with various invalid URLs
     if (url && typeof url === 'string' && 
-        (url.includes('localhost:undefined') || url.includes('undefined/?token='))) {
+        (url.includes('localhost:undefined') || 
+         url.includes('undefined/?token=') || 
+         url.includes('wss://localhost:undefined'))) {
       console.log('Blocked Vite HMR WebSocket connection to:', url);
       
       // Return a fake WebSocket object that doesn't really connect
