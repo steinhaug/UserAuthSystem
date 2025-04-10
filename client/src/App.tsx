@@ -9,6 +9,7 @@ import { BluetoothProvider } from "@/contexts/BluetothContext";
 import { LocationProvider } from "@/contexts/LocationContext";
 import { MicroInteractionsProvider } from "@/contexts/MicroInteractionsContext";
 import { MicroInteractionContainer } from "@/components/micro-interactions";
+import ToggleAuthModeButton from "@/components/auth/ToggleAuthModeButton";
 import MapView from "@/pages/map/MapView";
 import SimpleMapView from "@/pages/map/SimpleMapView";
 import NearbyView from "@/pages/nearby/NearbyView";
@@ -153,6 +154,7 @@ function App() {
             </Switch>
             <MicroInteractionContainer />
             <Toaster />
+            <ToggleAuthModeButton />
           </MicroInteractionsProvider>
         </LocationProvider>
       </BluetoothProvider>
