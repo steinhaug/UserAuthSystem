@@ -5,7 +5,9 @@ import {
   Calendar, 
   MessageSquare, 
   User,
-  Award
+  Award,
+  Search,
+  Brain
 } from 'lucide-react';
 
 interface BottomNavigationProps {
@@ -17,22 +19,27 @@ export default function BottomNavigation({ activePath }: BottomNavigationProps) 
   const navItems = [
     { 
       path: '/map', 
-      label: 'Map', 
+      label: 'Kart', 
       icon: Home 
     },
     { 
       path: '/nearby', 
-      label: 'Nearby', 
+      label: 'Nær deg', 
       icon: Users 
     },
     { 
+      path: '/search', 
+      label: 'Søk', 
+      icon: Search 
+    },
+    { 
       path: '/activities', 
-      label: 'Activities', 
+      label: 'Aktiviteter', 
       icon: Calendar 
     },
     { 
       path: '/recommendations', 
-      label: 'For You', 
+      label: 'For deg', 
       icon: ({ className }: { className?: string }) => (
         <svg 
           xmlns="http://www.w3.org/2000/svg" 
@@ -57,12 +64,12 @@ export default function BottomNavigation({ activePath }: BottomNavigationProps) 
     },
     {
       path: '/challenges', 
-      label: 'Challenges', 
+      label: 'Utfordringer', 
       icon: Award
     },
     { 
       path: '/profile', 
-      label: 'Profile', 
+      label: 'Profil', 
       icon: User 
     }
   ];
