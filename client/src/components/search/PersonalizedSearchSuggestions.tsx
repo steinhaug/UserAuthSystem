@@ -131,6 +131,8 @@ export function PersonalizedSearchSuggestions({
         return personalizedData.categories.favorites;
       case 'preferences':
         return personalizedData.categories.preferences;
+      case 'smart':
+        return personalizedData.categories.smart || [];
       default:
         return personalizedData.suggestions;
     }
@@ -148,6 +150,8 @@ export function PersonalizedSearchSuggestions({
         return <Star className="h-4 w-4 mr-1" />;
       case 'preferences':
         return <Brain className="h-4 w-4 mr-1" />;
+      case 'smart':
+        return <Activity className="h-4 w-4 mr-1" />;
       default:
         return null;
     }
@@ -203,10 +207,14 @@ export function PersonalizedSearchSuggestions({
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab} className="mb-4">
-          <TabsList className="grid grid-cols-5">
+          <TabsList className="grid grid-cols-6">
             <TabsTrigger value="all" className="flex items-center gap-1">
               {tabIcon('all')}
               <span className="hidden sm:inline">Alle</span>
+            </TabsTrigger>
+            <TabsTrigger value="smart" className="flex items-center gap-1">
+              {tabIcon('smart')}
+              <span className="hidden sm:inline">Smart</span>
             </TabsTrigger>
             <TabsTrigger value="trending" className="flex items-center gap-1">
               {tabIcon('trending')}

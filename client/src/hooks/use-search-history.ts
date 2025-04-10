@@ -29,6 +29,7 @@ interface PersonalizedSuggestionsResponse {
     timeBased: string[];
     trending: string[];
     preferences: string[];
+    smart?: string[];
   };
 }
 
@@ -71,6 +72,86 @@ export const usePersonalizedSuggestions = (limit: number = 10) => {
   const [offlineMode, setOfflineMode] = useState(false);
   const [realtimeConnected, setRealtimeConnected] = useState(false);
   const [localSuggestions, setLocalSuggestions] = useState<PersonalizedSuggestionsResponse | null>(null);
+  const [smartSuggestions, setSmartSuggestions] = useState<string[]>([]);
+  const [isGeneratingSmartSuggestions, setIsGeneratingSmartSuggestions] = useState(false);
+  
+  // Query for user search history to generate smart suggestions
+  const { data: historyData } = useQuery({
+    queryKey: ['/api/search/history', 50], // Get more history items for better suggestions
+    queryFn: async () => {
+      try {
+        const data = await apiRequest(`/api/search/history?limit=50`);
+        return (data as unknown as { history: SearchHistory[] }).history || [];
+      } catch (error) {
+        console.error('Error fetching search history for smart suggestions:', error);
+        return [];
+      }
+    }
+  });
+  
+  // Query for user preferences
+  const { data: preferencesData } = useQuery({
+    queryKey: ['/api/search/preferences'],
+    queryFn: async () => {
+      try {
+        const data = await apiRequest('/api/search/preferences');
+        return data;
+      } catch (error) {
+        console.error('Error fetching search preferences:', error);
+        return null;
+      }
+    }
+  });
+  
+  // Generate smart suggestions based on user history and preferences
+  useEffect(() => {
+    const generateSuggestions = async () => {
+      if (!historyData || historyData.length === 0) return;
+      
+      try {
+        setIsGeneratingSmartSuggestions(true);
+        
+        // Import smart search engine functionality
+        const { 
+          generateSmartSuggestions, 
+          identifyTrendingPatterns 
+        } = await import('@/lib/smartSearchEngine');
+        
+        // Generate suggestions
+        const smartSuggestions = generateSmartSuggestions(
+          historyData,
+          preferencesData,
+          Math.max(10, limit)
+        );
+        
+        // Generate trending suggestions
+        const trendingSuggestions = identifyTrendingPatterns(
+          historyData
+        );
+        
+        // Extract just the query strings and combine
+        const combinedSuggestions = [
+          ...smartSuggestions,
+          ...trendingSuggestions
+        ]
+          .sort((a, b) => b.score - a.score)
+          .map(suggestion => suggestion.query)
+          // Remove duplicates
+          .filter((suggestion, index, self) => 
+            self.findIndex(s => s === suggestion) === index
+          )
+          .slice(0, limit);
+        
+        setSmartSuggestions(combinedSuggestions);
+      } catch (error) {
+        console.error('Error generating smart suggestions:', error);
+      } finally {
+        setIsGeneratingSmartSuggestions(false);
+      }
+    };
+    
+    generateSuggestions();
+  }, [historyData, preferencesData, limit]);
   
   // Load local suggestions and check connection status
   useEffect(() => {
@@ -184,37 +265,63 @@ export const usePersonalizedSuggestions = (limit: number = 10) => {
     });
   }, [currentUser?.uid, realtimeConnected]);
   
-  // Combine server data with Firebase data, preferring Firebase when available
+  // Combine server data with Firebase data and smart suggestions
   const data = useMemo(() => {
-    // If we have Firebase data, use it
-    if (firebaseData) {
-      return firebaseData;
+    // Start with Firebase data if available, otherwise server data
+    let baseData = firebaseData || serverQuery.data;
+    
+    // If offline and no Firebase data, use local data
+    if (!baseData && offlineMode && localSuggestions) {
+      baseData = localSuggestions;
     }
     
-    // If we're offline and have local suggestions, use them
-    if (offlineMode && localSuggestions) {
-      return localSuggestions;
-    }
-    
-    // Otherwise use server data or default empty state
-    return serverQuery.data || {
-      suggestions: [],
-      trending: [],
-      categories: {
-        favorites: [],
-        timeBased: [],
+    // If we still don't have data, use empty state
+    if (!baseData) {
+      baseData = {
+        suggestions: [],
         trending: [],
-        preferences: []
-      }
-    };
-  }, [firebaseData, serverQuery.data, offlineMode, localSuggestions]);
+        categories: {
+          favorites: [],
+          timeBased: [],
+          trending: [],
+          preferences: []
+        }
+      };
+    }
+    
+    // If we have smart suggestions, integrate them
+    if (smartSuggestions.length > 0) {
+      // Create a new object to avoid mutating the base data
+      return {
+        ...baseData,
+        // Add smart suggestions to the main suggestions list
+        suggestions: [
+          ...smartSuggestions,
+          ...baseData.suggestions
+        ]
+          // Remove duplicates
+          .filter((suggestion, index, self) => 
+            self.indexOf(suggestion) === index
+          )
+          .slice(0, limit),
+        // Add a new categories.smart field
+        categories: {
+          ...baseData.categories,
+          smart: smartSuggestions.slice(0, Math.min(5, limit))
+        }
+      };
+    }
+    
+    return baseData;
+  }, [firebaseData, serverQuery.data, offlineMode, localSuggestions, smartSuggestions, limit]);
   
   return {
     ...serverQuery,
     data,
-    isLoading: serverQuery.isLoading && !firebaseData && !localSuggestions,
+    isLoading: (serverQuery.isLoading && !firebaseData && !localSuggestions) || isGeneratingSmartSuggestions,
     offlineMode,
-    realtimeConnected
+    realtimeConnected,
+    hasSmartSuggestions: smartSuggestions.length > 0
   };
 };
 
