@@ -64,11 +64,24 @@ export const useNearbySearchSuggestions = () => {
 
 // Hook for getting personalized search suggestions based on user history and preferences
 export const usePersonalizedSuggestions = (limit: number = 10) => {
-  return useQuery({
+  return useQuery<PersonalizedSuggestionsResponse>({
     queryKey: ['/api/search/personalized', limit],
     queryFn: async () => {
       try {
-        const data = await apiRequest(`/api/search/personalized?limit=${limit}`);
+        // Using the built-in queryFn instead of apiRequest directly
+        // This avoids typing issues since queryFn will always return JSON
+        const response = await fetch(`/api/search/personalized?limit=${limit}`, {
+          credentials: "include",
+          headers: {
+            "X-Dev-Mode": "true" // Add development mode header
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch personalized suggestions: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
         return data as PersonalizedSuggestionsResponse;
       } catch (error) {
         console.error('Error fetching personalized suggestions:', error);
