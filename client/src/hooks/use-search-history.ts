@@ -148,7 +148,7 @@ export const useSaveSearchHistory = () => {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { currentUser } = useAuth();
-
+  
   return useMutation({
     mutationFn: async (searchData: Omit<InsertSearchHistory, 'userId'>) => {
       // First, save to the server
@@ -190,10 +190,30 @@ export const useSaveSearchHistory = () => {
 export const useSearchHistory = (limit: number = 10) => {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
+  const [firebaseHistory, setFirebaseHistory] = useState<SearchHistory[] | null>(null);
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
+  const [syncingToFirebase, setSyncingToFirebase] = useState(false);
+  const { currentUser } = useAuth();
 
-  // Fetch search history
+  // Check Firebase Realtime Database connection status
+  useEffect(() => {
+    const checkConnection = async () => {
+      try {
+        const { isRealtimeConnected } = await import('@/lib/firebaseSearch');
+        const connected = await isRealtimeConnected();
+        setRealtimeConnected(connected);
+      } catch (error) {
+        console.error('Error checking Firebase connection:', error);
+        setRealtimeConnected(false);
+      }
+    };
+    
+    checkConnection();
+  }, []);
+
+  // Fetch search history from server
   const {
-    data: history,
+    data: serverHistory,
     isLoading: isLoadingHistory,
     error: historyError
   } = useQuery({
@@ -288,9 +308,46 @@ export const useSearchHistory = (limit: number = 10) => {
     }
   }, [saveSearchMutation]);
 
-  // Toggle favorite status for a search
-  const { currentUser } = useAuth();
+  // Sync local search history to Firebase
+  const syncHistoryToFirebase = useCallback(async (): Promise<boolean> => {
+    if (!currentUser?.uid || !serverHistory || serverHistory.length === 0) {
+      return false;
+    }
+    
+    try {
+      setSyncingToFirebase(true);
+      
+      const { syncSearchHistoryToFirebase, markSearchDataMigrated } = await import('@/lib/firebaseSearch');
+      
+      // Sync all history items
+      const result = await syncSearchHistoryToFirebase(currentUser.uid, serverHistory);
+      
+      if (result) {
+        // Mark the data as migrated
+        await markSearchDataMigrated(currentUser.uid);
+        toast({
+          title: 'Synkronisering fullført',
+          description: `${serverHistory.length} søk er nå synkronisert til skyen`,
+          variant: 'default',
+        });
+        return true;
+      } else {
+        throw new Error('Kunne ikke synkronisere søkehistorikk');
+      }
+    } catch (error) {
+      console.error('Error syncing history to Firebase:', error);
+      toast({
+        title: 'Synkronisering feilet',
+        description: 'Kunne ikke synkronisere søkehistorikk til skyen',
+        variant: 'destructive',
+      });
+      return false;
+    } finally {
+      setSyncingToFirebase(false);
+    }
+  }, [currentUser?.uid, serverHistory, toast]);
   
+  // Toggle favorite status for a search
   const toggleFavorite = useCallback((searchItem: SearchHistory) => {
     const newFavoriteStatus = !searchItem.favorite;
     
@@ -317,8 +374,13 @@ export const useSearchHistory = (limit: number = 10) => {
     }
   }, [updateSearchHistoryMutation, currentUser]);
 
+  // Combine server history with any Firebase history
+  const combinedHistory = useMemo(() => {
+    return serverHistory || [];
+  }, [serverHistory]);
+  
   return {
-    history: history || [],
+    history: combinedHistory,
     suggestions: suggestions || [],
     isLoadingHistory,
     isLoadingSuggestions,
@@ -329,6 +391,10 @@ export const useSearchHistory = (limit: number = 10) => {
     toggleFavorite,
     searchQuery,
     saveSearchMutation,
-    updateSearchHistoryMutation
+    updateSearchHistoryMutation,
+    // Add Firebase-related functionality
+    syncHistoryToFirebase,
+    isSyncingToFirebase: syncingToFirebase,
+    isRealtimeConnected: realtimeConnected
   };
 };

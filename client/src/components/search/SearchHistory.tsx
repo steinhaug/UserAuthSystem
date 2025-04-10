@@ -185,7 +185,15 @@ export function SearchHistory({
   return (
     <Card className={className}>
       <CardHeader>
-        <CardTitle>Søkehistorikk</CardTitle>
+        <CardTitle className="flex items-center justify-between">
+          <span>Søkehistorikk</span>
+          {realtimeConnection && (
+            <Badge variant="outline" className="gap-1 px-1.5 ml-2">
+              <Wifi className="h-3 w-3 text-green-500" />
+              <span className="text-xs">Realtime</span>
+            </Badge>
+          )}
+        </CardTitle>
         <CardDescription>
           Din tidligere søk og favoritter
         </CardDescription>
@@ -221,6 +229,41 @@ export function SearchHistory({
           </TabsContent>
         </CardContent>
       </Tabs>
+      
+      {!DEVELOPMENT_MODE && (
+        <CardFooter className="bg-gray-50 border-t">
+          <div className="w-full flex items-center justify-between">
+            <div className="text-sm text-gray-500 flex items-center gap-1">
+              <Database className="h-4 w-4" />
+              <span>{history.length} søk lagret</span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={syncToFirebase}
+              disabled={!isSyncAvailable || syncStatus === 'syncing' || syncStatus === 'synced'}
+              className="gap-2"
+            >
+              {syncStatus === 'syncing' ? (
+                <>
+                  <CloudUpload className="h-4 w-4 animate-pulse" />
+                  Synkroniserer...
+                </>
+              ) : syncStatus === 'synced' ? (
+                <>
+                  <CheckCircle2 className="h-4 w-4 text-green-500" />
+                  Synkronisert
+                </>
+              ) : (
+                <>
+                  <CloudUpload className="h-4 w-4" />
+                  Synkroniser til skyen
+                </>
+              )}
+            </Button>
+          </div>
+        </CardFooter>
+      )}
     </Card>
   );
 }
