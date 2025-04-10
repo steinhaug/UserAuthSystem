@@ -278,62 +278,231 @@ When running in development mode, you can:
 
 Comemingel includes test scripts to validate your connection to external services. These scripts help verify that your API keys and configuration are set up correctly.
 
-### Running Tests
+### CLI Commands for Running Tests
 
-You can run tests using our interactive test menu or run individual test scripts directly:
+Below are the exact commands to run each test from the command line, their expected output, and what to look for to confirm success.
 
 #### Interactive Test Menu
 
-Run the test menu to choose which tests to run:
+Run the interactive test menu to select which tests to run:
 
 ```bash
-node scripts/run-tests.js
+node scripts/run-tests.mjs
 ```
 
-This will display an interactive menu with options to test:
-1. Database Connection
-2. Firebase Configuration
-3. Mapbox API
-4. OpenAI API
+Expected output:
+```
+=== External Services Test Menu ===
 
-You can also run all tests sequentially by selecting the 'Run all tests' option.
+Select a test to run:
 
-#### Individual Test Scripts
+1. Test Database Connection
+2. Test Firebase Configuration
+3. Test Mapbox API
+4. Test OpenAI API
+a. Run all tests
+q. Quit
 
-You can run individual test scripts directly using the following commands:
+Enter your choice: 
+```
 
-##### Database Connection Test
+#### Database Connection Test
+
 ```bash
 npx tsx scripts/tests/database-test.ts
 ```
-This verifies connectivity to PostgreSQL and checks that your schema tables exist.
 
-##### Firebase Configuration Test
+Expected successful output:
+```
+=== Testing PostgreSQL Database Connection ===
+Loading environment variables from /path/to/.env
+Creating connection pool...
+Initializing Drizzle ORM...
+Testing basic query...
+Database server time: 2025-04-10 12:34:56.789Z
+
+Verifying database schema...
+Found 15 tables in Drizzle schema
+Found 15 tables in database
+✓ All schema tables exist in the database
+
+Closing database connection...
+✓ Database connection test completed successfully!
+```
+
+What to look for:
+- Confirmation that the database connection is established
+- The current database server time is displayed
+- Tables defined in the schema are found in the database
+- Final success message
+
+#### Firebase Configuration Test
+
 ```bash
 npx tsx scripts/tests/firebase-test.ts
 ```
-Validates your Firebase configuration and API keys.
 
-##### Mapbox API Test
+Expected successful output:
+```
+=== Testing Firebase Configuration ===
+Loading environment variables from /path/to/.env
+Initializing Firebase app...
+✓ Firebase app initialized successfully
+
+Initializing Firebase Auth...
+✓ Firebase Auth initialized successfully
+
+✓ Firebase configuration test completed successfully!
+Note: This only verifies configuration, not actual authentication.
+To test authentication, you would need to attempt a sign-in operation.
+```
+
+What to look for:
+- Firebase app initializes successfully
+- Firebase Auth initializes successfully
+- Final success message confirming the configuration works
+
+#### Mapbox API Test
+
 ```bash
 npx tsx scripts/tests/mapbox-test.ts
 ```
-Tests your Mapbox token by performing a simple geocoding request.
 
-##### OpenAI API Test
+Expected successful output:
+```
+=== Testing Mapbox API Token ===
+Loading environment variables from /path/to/.env
+Mapbox token found (length: 70)
+Testing Mapbox token with API request...
+✓ Mapbox API request successful
+Geocoded "Oslo, Norway" to coordinates: [10.7522, 59.9139]
+
+✓ Mapbox API token test completed successfully!
+```
+
+What to look for:
+- Mapbox token is detected
+- API request succeeds
+- Coordinates for "Oslo, Norway" are returned
+- Final success message confirming the token works
+
+#### OpenAI API Test
+
 ```bash
 npx tsx scripts/tests/openai-test.ts
 ```
-Verifies your OpenAI API key is working by sending a simple test request.
 
-### Troubleshooting
+Expected successful output:
+```
+=== Testing OpenAI API Connection ===
+Loading environment variables from /path/to/.env
+OpenAI API key found
+Initializing OpenAI client...
+Testing API with a simple request...
+✓ OpenAI API request successful
+Response preview:
+This is a confirmation that your OpenAI API connection is working properly. Your test has been successful...
 
-If tests fail, check the following:
+API Usage:
+- Prompt tokens: 24
+- Completion tokens: 31
+- Total tokens: 55
 
-- **Database Connection Issues**: Verify your DATABASE_URL in the .env file
-- **Firebase Configuration**: Ensure your Firebase API key, project ID, and app ID are correct
-- **Mapbox Issues**: Check that your Mapbox token is valid and has the necessary permissions
-- **OpenAI Errors**: Verify your OpenAI API key is valid and has sufficient quota
+✓ OpenAI API test completed successfully!
+```
+
+What to look for:
+- OpenAI API key is detected
+- API request succeeds
+- A response is generated from the model
+- Token usage information is displayed
+- Final success message confirming the API key works
+
+### Running All Tests Sequentially
+
+To run all tests one after another from the command line:
+
+```bash
+for test in database firebase mapbox openai; do
+  echo "Running $test test..."
+  npx tsx scripts/tests/$test-test.ts
+  echo "------------------------"
+  echo ""
+done
+```
+
+### Test Failure Examples and Troubleshooting
+
+#### Database Connection Failure
+
+```
+=== Testing PostgreSQL Database Connection ===
+ERROR: DATABASE_URL environment variable is not set
+```
+
+Fix: Ensure the DATABASE_URL environment variable is set in your .env file.
+
+```
+=== Testing PostgreSQL Database Connection ===
+ERROR: Failed to connect to the database
+error: connection to server at "your-host" (123.456.789.10), port 5432 failed: FATAL: password authentication failed for user "postgres"
+```
+
+Fix: Check that your database credentials in DATABASE_URL are correct.
+
+#### Firebase Configuration Failure
+
+```
+=== Testing Firebase Configuration ===
+ERROR: Missing required Firebase environment variables:
+  - VITE_FIREBASE_API_KEY
+  - VITE_FIREBASE_PROJECT_ID
+```
+
+Fix: Add the missing Firebase configuration variables to your .env file.
+
+```
+=== Testing Firebase Configuration ===
+ERROR: Failed to initialize Firebase
+FirebaseError: API key not valid. Please pass a valid API key.
+```
+
+Fix: Update your Firebase API key with a valid one from the Firebase console.
+
+#### Mapbox API Failure
+
+```
+=== Testing Mapbox API Token ===
+ERROR: VITE_MAPBOX_TOKEN environment variable is not set
+```
+
+Fix: Add your Mapbox token to the VITE_MAPBOX_TOKEN variable in your .env file.
+
+```
+=== Testing Mapbox API Token ===
+ERROR: Mapbox API request failed with status 401
+Error message: Unauthorized: Invalid token
+```
+
+Fix: Update your Mapbox token with a valid one from your Mapbox account.
+
+#### OpenAI API Failure
+
+```
+=== Testing OpenAI API Connection ===
+ERROR: OPENAI_API_KEY environment variable is not set
+```
+
+Fix: Add your OpenAI API key to the OPENAI_API_KEY variable in your .env file.
+
+```
+=== Testing OpenAI API Connection ===
+ERROR: Failed to connect to OpenAI API
+Status: 401
+Message: Incorrect API key provided
+```
+
+Fix: Update your OpenAI API key with a valid one from your OpenAI account.
 
 ## 🤝 Contributing
 

@@ -15,7 +15,6 @@ export default defineConfig({
           await import("@replit/vite-plugin-cartographer").then((m) =>
             m.cartographer(),
           ),
-        
         ]
       : []),
   ],
@@ -31,5 +30,9 @@ export default defineConfig({
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
   },
-  
+  server: {
+    host: true,
+    port: 5173,
+    strictPort: true,
+  },
 });

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 import { spawn } from 'child_process';
-import * as readline from 'readline';
+import readline from 'readline';
 
-const rl = readline.default.createInterface({
+const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout
 });
