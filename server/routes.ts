@@ -436,10 +436,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         successful: true
       });
       
-      // For now just return empty response - in a future implementation
-      // this would actually search for nearby users or activities
+      // For now returning eksempeldata - i en fremtidig implementasjon
+      // ville dette faktisk søke etter brukere eller aktiviteter i nærheten
+      const mockResults = [
+        {
+          name: "Plogging i Frognerparken",
+          type: "Aktivitet",
+          description: "Bli med på miljøvennlig jogging mens vi plukker søppel i Frognerparken",
+          distance: "1.2 km"
+        },
+        {
+          name: "Kajakkpadling ved Bygdøy",
+          type: "Vannsport",
+          description: "Rolig kajakktur langs Bygdøy med fokus på naturopplevelser og fotografering",
+          distance: "1.8 km"
+        },
+        {
+          name: "Yoga i Slottsparken",
+          type: "Trening",
+          description: "Utendørs yoga for alle nivåer. Ta med egen matte!",
+          distance: "0.5 km"
+        }
+      ];
+      
       return res.json({ 
-        results: [],
+        results: mockResults,
         location: { latitude, longitude },
         radius
       });

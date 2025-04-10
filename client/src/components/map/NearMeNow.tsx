@@ -34,7 +34,7 @@ export function NearMeNow({ onSelectPlace, currentLocation, className = '' }: Ne
     try {
       // Fetch suggestions from the API
       const response = await fetch(
-        `/api/search/near-me?latitude=${currentLocation.latitude}&longitude=${currentLocation.longitude}&radius=2`
+        `/api/search/near-me?lat=${currentLocation.latitude}&lng=${currentLocation.longitude}&radius=2`
       );
       
       if (!response.ok) {
@@ -42,9 +42,19 @@ export function NearMeNow({ onSelectPlace, currentLocation, className = '' }: Ne
       }
       
       const data = await response.json();
+      console.log("Near-me search response:", data);
       
-      if (data.suggestions && Array.isArray(data.suggestions)) {
-        setSuggestions(data.suggestions);
+      // Server gir 'results' i respons, ikke 'suggestions'
+      if (data.results && Array.isArray(data.results)) {
+        // Hvis vi har resultater, men de har ikke riktig format,
+        // prøv å konvertere dem til riktig format
+        const formattedResults = data.results.map((result: any) => ({
+          name: result.name || result.title || "Ukjent sted",
+          type: result.type || "Sted",
+          description: result.description || "Ingen beskrivelse tilgjengelig",
+          distance: result.distance || "< 2km"
+        }));
+        setSuggestions(formattedResults);
       } else {
         setSuggestions([]);
       }
