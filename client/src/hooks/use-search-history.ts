@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { queryClient } from '@/lib/queryClient';
 import { InsertSearchHistory, SearchHistory } from '@shared/schema';
 
+
 import { apiRequest } from '@/lib/queryClient';
 
 // Define response types for better type checking
@@ -195,21 +196,83 @@ export const useSearchHistory = (limit: number = 10) => {
   const [syncingToFirebase, setSyncingToFirebase] = useState(false);
   const { currentUser } = useAuth();
 
-  // Check Firebase Realtime Database connection status
+  // This state will be used for the server history when available
+  const [localHistory, setLocalHistory] = useState<SearchHistory[]>([]);
+  const [offlineMode, setOfflineMode] = useState(false);
+  
+  // Use development mode constant
+  const DEVELOPMENT_MODE = process.env.NODE_ENV === 'development';
+  
+  // Load local history from storage if available
   useEffect(() => {
+    const loadLocalHistory = async () => {
+      if (DEVELOPMENT_MODE) return;
+      
+      try {
+        const { getLocalSearchHistory } = await import('@/lib/firebaseSearch');
+        const { items, timestamp } = getLocalSearchHistory();
+        if (items.length > 0) {
+          setLocalHistory(items);
+        }
+      } catch (error) {
+        console.error('Error loading local history:', error);
+      }
+    };
+    
+    loadLocalHistory();
+  }, []);
+  
+  // Check Firebase Realtime Database connection status and set up auto-sync
+  useEffect(() => {
+    let syncInterval: NodeJS.Timeout | null = null;
+    
     const checkConnection = async () => {
       try {
-        const { isRealtimeConnected } = await import('@/lib/firebaseSearch');
+        const { isRealtimeConnected, isSearchDataMigrated } = await import('@/lib/firebaseSearch');
         const connected = await isRealtimeConnected();
         setRealtimeConnected(connected);
+        setOfflineMode(!connected);
+        
+        // Set up auto-sync if connected and user is authenticated
+        if (connected && currentUser?.uid) {
+          // Check if data is already migrated
+          const isMigrated = await isSearchDataMigrated(currentUser.uid);
+          
+          // If not migrated, set up periodic sync (every 5 minutes)
+          if (!isMigrated && !syncInterval) {
+            syncInterval = setInterval(async () => {
+              if (!syncingToFirebase && serverHistory && serverHistory.length > 0) {
+                console.log('Auto-sync: Syncing search history to Firebase...');
+                try {
+                  setSyncingToFirebase(true);
+                  const { syncSearchHistoryToFirebase, markSearchDataMigrated } = await import('@/lib/firebaseSearch');
+                  await syncSearchHistoryToFirebase(currentUser.uid, serverHistory);
+                  await markSearchDataMigrated(currentUser.uid);
+                } catch (error) {
+                  console.error('Auto-sync: Error syncing to Firebase:', error);
+                } finally {
+                  setSyncingToFirebase(false);
+                }
+              }
+            }, 5 * 60 * 1000); // 5 minutes
+          }
+        }
       } catch (error) {
         console.error('Error checking Firebase connection:', error);
         setRealtimeConnected(false);
+        setOfflineMode(true);
       }
     };
     
     checkConnection();
-  }, []);
+    
+    // Clean up interval on unmount
+    return () => {
+      if (syncInterval) {
+        clearInterval(syncInterval);
+      }
+    };
+  }, [currentUser?.uid, syncingToFirebase]);
 
   // Fetch search history from server
   const {
@@ -380,7 +443,7 @@ export const useSearchHistory = (limit: number = 10) => {
   }, [serverHistory]);
   
   return {
-    history: combinedHistory,
+    history: combinedHistory || [],
     suggestions: suggestions || [],
     isLoadingHistory,
     isLoadingSuggestions,
@@ -395,6 +458,7 @@ export const useSearchHistory = (limit: number = 10) => {
     // Add Firebase-related functionality
     syncHistoryToFirebase,
     isSyncingToFirebase: syncingToFirebase,
-    isRealtimeConnected: realtimeConnected
+    isRealtimeConnected: realtimeConnected,
+    offlineMode: offlineMode
   };
 };

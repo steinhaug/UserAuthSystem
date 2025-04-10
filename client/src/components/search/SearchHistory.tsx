@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Star, StarOff, Clock, MapPin, Calendar, CloudUpload, Database, Wifi, CheckCircle2 } from 'lucide-react';
+import { Star, StarOff, Clock, MapPin, Calendar, CloudUpload, Database, Wifi, WifiOff, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatDistanceToNow } from 'date-fns';
@@ -42,7 +42,8 @@ export function SearchHistory({
     performSearch,
     syncHistoryToFirebase,
     isSyncingToFirebase,
-    isRealtimeConnected
+    isRealtimeConnected,
+    offlineMode
   } = useSearchHistory(limit);
   
   // Update component state based on Firebase connection
@@ -169,15 +170,26 @@ export function SearchHistory({
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
           <span>Søkehistorikk</span>
-          {realtimeConnection && (
+          {realtimeConnection ? (
             <Badge variant="outline" className="gap-1 px-1.5 ml-2">
               <Wifi className="h-3 w-3 text-green-500" />
               <span className="text-xs">Realtime</span>
             </Badge>
-          )}
+          ) : offlineMode ? (
+            <Badge variant="outline" className="gap-1 px-1.5 ml-2 bg-amber-50">
+              <WifiOff className="h-3 w-3 text-amber-500" />
+              <span className="text-xs">Offline</span>
+            </Badge>
+          ) : null}
         </CardTitle>
         <CardDescription>
           Din tidligere søk og favoritter
+          {offlineMode && (
+            <div className="mt-1 text-xs text-amber-600 flex items-center gap-1">
+              <AlertCircle className="h-3 w-3" />
+              <span>Jobber i frakoblet modus. Endringer blir synkronisert når tilkoblingen er gjenopprettet.</span>
+            </div>
+          )}
         </CardDescription>
       </CardHeader>
       

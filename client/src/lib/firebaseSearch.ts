@@ -383,23 +383,95 @@ export const listenToPersonalizedSuggestions = (
   return unsubscribe;
 };
 
-// Synchronize search history from server to Firebase
+// Save search history items to local storage for offline use
+export const saveSearchHistoryLocally = (searchHistory: SearchHistory[]) => {
+  try {
+    localStorage.setItem('offlineSearchHistory', JSON.stringify(searchHistory));
+    localStorage.setItem('offlineSearchHistoryTimestamp', Date.now().toString());
+    return true;
+  } catch (error) {
+    console.error("Error saving search history to local storage:", error);
+    return false;
+  }
+};
+
+// Get search history from local storage
+export const getLocalSearchHistory = (): { items: SearchHistory[], timestamp: number } => {
+  try {
+    const items = JSON.parse(localStorage.getItem('offlineSearchHistory') || '[]');
+    const timestamp = parseInt(localStorage.getItem('offlineSearchHistoryTimestamp') || '0', 10);
+    return { items, timestamp };
+  } catch (error) {
+    console.error("Error getting search history from local storage:", error);
+    return { items: [], timestamp: 0 };
+  }
+};
+
+// Mark a search as pending sync to Firebase
+export const markSearchForSync = (searchId: number) => {
+  try {
+    const pendingSync = JSON.parse(localStorage.getItem('pendingSearchSync') || '[]');
+    if (!pendingSync.includes(searchId)) {
+      pendingSync.push(searchId);
+      localStorage.setItem('pendingSearchSync', JSON.stringify(pendingSync));
+    }
+    return true;
+  } catch (error) {
+    console.error("Error marking search for sync:", error);
+    return false;
+  }
+};
+
+// Get searches pending sync
+export const getPendingSyncSearches = (): number[] => {
+  try {
+    return JSON.parse(localStorage.getItem('pendingSearchSync') || '[]');
+  } catch (error) {
+    console.error("Error getting pending sync searches:", error);
+    return [];
+  }
+};
+
+// Clear a search from pending sync
+export const clearSearchFromPendingSync = (searchId: number) => {
+  try {
+    const pendingSync = JSON.parse(localStorage.getItem('pendingSearchSync') || '[]');
+    const index = pendingSync.indexOf(searchId);
+    if (index > -1) {
+      pendingSync.splice(index, 1);
+      localStorage.setItem('pendingSearchSync', JSON.stringify(pendingSync));
+    }
+    return true;
+  } catch (error) {
+    console.error("Error clearing search from pending sync:", error);
+    return false;
+  }
+};
+
+// Synchronize search history from server to Firebase with conflict resolution
 export const syncSearchHistoryToFirebase = async (userId: string, searchHistory: SearchHistory[]) => {
   if (DEVELOPMENT_MODE) {
     console.log("Firebase Search: Development mode - not syncing search history to Firebase");
-    return;
+    return false;
   }
   
   try {
     const historyRef = userSearchHistoryRef(userId);
     
+    // First, get existing data from Firebase to check for conflicts
+    const snapshot = await get(historyRef);
+    const existingData: Record<string, any> = snapshot.exists() ? snapshot.val() : {};
+    
     // Create a data structure for the history
     const historyData: Record<string, any> = {};
     
-    // Add each history item with a Firebase-friendly ID
-    searchHistory.forEach(item => {
+    // Add each history item with a Firebase-friendly ID, resolving conflicts
+    for (const item of searchHistory) {
       const itemId = `search-${item.id}`;
-      historyData[itemId] = {
+      const existingItem = existingData[itemId];
+      
+      // Prepare the new item data
+      const newItemData: Record<string, any> = {
         id: item.id,
         userId: item.userId,
         query: item.query,
@@ -407,16 +479,56 @@ export const syncSearchHistoryToFirebase = async (userId: string, searchHistory:
         timestamp: item.timestamp?.getTime() || Date.now(),
         favorite: item.favorite || false,
         successful: item.successful || true,
+        lastUpdated: Date.now() // Add this field to track updates
       };
-    });
+      
+      // If item already exists in Firebase, we need to resolve conflicts
+      if (existingItem) {
+        // Create a merged item with conflict resolution:
+        // - For favorite status, use the most recent change
+        // - For other fields, prefer the server version unless Firebase has newer changes
+        
+        const serverTimestamp = newItemData.timestamp;
+        const firebaseTimestamp = existingItem.timestamp || 0;
+        const firebaseUpdated = existingItem.lastUpdated || 0;
+        
+        // If Firebase has a newer version (someone updated it from another device)
+        if (firebaseUpdated > serverTimestamp) {
+          // Use Firebase version of favorite status and notes
+          newItemData.favorite = existingItem.favorite;
+          if (existingItem.notes) {
+            newItemData.notes = existingItem.notes;
+          }
+        }
+        
+        // Add a last updated timestamp to track changes
+        newItemData.lastUpdated = Date.now();
+      }
+      
+      // Add to the batch update
+      historyData[itemId] = newItemData;
+      
+      // Clear from pending sync if it was there
+      clearSearchFromPendingSync(item.id);
+    }
     
     // Update all at once
     await update(historyRef, historyData);
-    console.log(`Synchronized ${searchHistory.length} search history items to Firebase`);
+    console.log(`Synchronized ${searchHistory.length} search history items to Firebase with conflict resolution`);
+    
+    // Also save to local storage for offline use
+    saveSearchHistoryLocally(searchHistory);
     
     return true;
   } catch (error) {
     console.error("Error syncing search history to Firebase:", error);
+    
+    // If offline, mark these searches for future sync
+    if (!realtimeConnected) {
+      searchHistory.forEach(item => markSearchForSync(item.id));
+      saveSearchHistoryLocally(searchHistory);
+    }
+    
     return false;
   }
 };
