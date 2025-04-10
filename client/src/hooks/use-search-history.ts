@@ -89,9 +89,8 @@ export const useSearchHistory = (limit: number = 10) => {
   } = useQuery({
     queryKey: ['/api/search/history', limit],
     queryFn: async () => {
-      const res = await makeApiRequest(`/api/search/history?limit=${limit}`);
-      const jsonData = res;
-      return jsonData.history as SearchHistory[];
+      const data = await apiRequest(`/api/search/history?limit=${limit}`);
+      return (data as unknown as HistoryResponse).history || [];
     }
   });
 
@@ -107,9 +106,8 @@ export const useSearchHistory = (limit: number = 10) => {
       if (!searchQuery || searchQuery.length < 2) {
         return [] as SearchSuggestion[];
       }
-      const res = await makeApiRequest(`/api/search/suggestions?q=${encodeURIComponent(searchQuery)}`);
-      const jsonData = res;
-      return jsonData.suggestions as SearchSuggestion[];
+      const data = await apiRequest(`/api/search/suggestions?q=${encodeURIComponent(searchQuery)}`);
+      return (data as unknown as SuggestionsResponse).suggestions || [];
     },
     enabled: searchQuery.length >= 2 // Only fetch if user has typed at least 2 characters
   });
@@ -117,12 +115,11 @@ export const useSearchHistory = (limit: number = 10) => {
   // Mutation to save a search to history
   const saveSearchMutation = useMutation({
     mutationFn: async (searchData: Omit<InsertSearchHistory, 'userId'>) => {
-      const res = await makeApiRequest('/api/search/save', {
+      const data = await apiRequest('/api/search/save', {
         method: 'POST',
         data: searchData
       });
-      const jsonData = res;
-      return jsonData.searchHistory as SearchHistory;
+      return (data as unknown as SearchHistoryResponse).searchHistory;
     },
     onSuccess: () => {
       // Invalidate the search history query to refetch
@@ -140,12 +137,11 @@ export const useSearchHistory = (limit: number = 10) => {
   // Mutation to update a search history item (e.g., mark as favorite)
   const updateSearchHistoryMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number, data: Partial<SearchHistory> }) => {
-      const res = await makeApiRequest(`/api/search/history/${id}`, {
+      const result = await apiRequest(`/api/search/history/${id}`, {
         method: 'PATCH',
         data: data
       });
-      const jsonData = res;
-      return jsonData.history as SearchHistory;
+      return (result as unknown as HistoryItemResponse).history;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/search/history'] });
