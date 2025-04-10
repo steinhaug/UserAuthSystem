@@ -1,0 +1,12 @@
+specVersion: "v1"
+serviceId: "y"
+location: "europe-north1"
+schema:
+  source: "./schema"
+  datasource:
+    postgresql:
+      database: "y"
+      cloudSql:
+        instanceId: "replit-workspace-fdc"
+      # schemaValidation: "COMPATIBLE"
+connectorDirs: ["./connector"]

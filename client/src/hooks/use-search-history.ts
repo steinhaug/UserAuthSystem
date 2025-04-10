@@ -68,6 +68,48 @@ export const useNearbySearchSuggestions = () => {
 export const usePersonalizedSuggestions = (limit: number = 10) => {
   const { currentUser } = useAuth();
   const [firebaseData, setFirebaseData] = useState<PersonalizedSuggestionsResponse | null>(null);
+  const [offlineMode, setOfflineMode] = useState(false);
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
+  const [localSuggestions, setLocalSuggestions] = useState<PersonalizedSuggestionsResponse | null>(null);
+  
+  // Load local suggestions and check connection status
+  useEffect(() => {
+    const checkConnectionAndLoadLocal = async () => {
+      try {
+        // Import Firebase search functions dynamically
+        const { isRealtimeConnected } = await import('@/lib/firebaseSearch');
+        
+        // Check connection status
+        const connected = await isRealtimeConnected();
+        setRealtimeConnected(connected);
+        setOfflineMode(!connected);
+        
+        // Try to load cached suggestions from localStorage
+        if (!connected) {
+          try {
+            // Attempt to load cached suggestions from localStorage directly
+            const cachedData = localStorage.getItem('personalized_suggestions');
+            if (cachedData) {
+              try {
+                const cached = JSON.parse(cachedData);
+                setLocalSuggestions(cached);
+              } catch (e) {
+                console.error('Error parsing cached suggestions:', e);
+              }
+            }
+          } catch (err) {
+            console.error('Error loading local suggestions:', err);
+          }
+        }
+      } catch (error) {
+        console.error('Error checking realtime connection:', error);
+        setOfflineMode(true);
+        setRealtimeConnected(false);
+      }
+    };
+    
+    checkConnectionAndLoadLocal();
+  }, []);
   
   // Server-side personalized suggestions
   const serverQuery = useQuery<PersonalizedSuggestionsResponse>({
@@ -87,9 +129,24 @@ export const usePersonalizedSuggestions = (limit: number = 10) => {
         }
         
         const data = await response.json();
+        
+        // Also cache the data locally for offline use
+        try {
+          // Cache directly to localStorage
+          localStorage.setItem('personalized_suggestions', JSON.stringify(data));
+        } catch (error) {
+          console.error('Error caching suggestions:', error);
+        }
+        
         return data as PersonalizedSuggestionsResponse;
       } catch (error) {
         console.error('Error fetching personalized suggestions:', error);
+        
+        // If offline, try to use cached data
+        if (localSuggestions) {
+          return localSuggestions;
+        }
+        
         return {
           suggestions: [],
           trending: [],
@@ -106,25 +163,40 @@ export const usePersonalizedSuggestions = (limit: number = 10) => {
   
   // Use Firebase Realtime Database for real-time suggestions
   useEffect(() => {
-    if (!currentUser?.uid) return;
+    if (!currentUser?.uid || !realtimeConnected) return;
     
     // Import Firebase search functions dynamically to avoid SSR issues
     import('@/lib/firebaseSearch').then(({ listenToPersonalizedSuggestions }) => {
       // Set up real-time listener
       const unsubscribe = listenToPersonalizedSuggestions(currentUser.uid, (data) => {
         setFirebaseData(data);
+        
+        // Also cache the data locally
+        try {
+          localStorage.setItem('personalized_suggestions', JSON.stringify(data));
+        } catch (error) {
+          console.error('Error caching suggestions from Firebase:', error);
+        }
       });
       
       // Clean up listener on unmount
       return () => unsubscribe();
     });
-  }, [currentUser?.uid]);
+  }, [currentUser?.uid, realtimeConnected]);
   
   // Combine server data with Firebase data, preferring Firebase when available
   const data = useMemo(() => {
+    // If we have Firebase data, use it
     if (firebaseData) {
       return firebaseData;
     }
+    
+    // If we're offline and have local suggestions, use them
+    if (offlineMode && localSuggestions) {
+      return localSuggestions;
+    }
+    
+    // Otherwise use server data or default empty state
     return serverQuery.data || {
       suggestions: [],
       trending: [],
@@ -135,12 +207,14 @@ export const usePersonalizedSuggestions = (limit: number = 10) => {
         preferences: []
       }
     };
-  }, [firebaseData, serverQuery.data]);
+  }, [firebaseData, serverQuery.data, offlineMode, localSuggestions]);
   
   return {
     ...serverQuery,
     data,
-    isLoading: serverQuery.isLoading && !firebaseData
+    isLoading: serverQuery.isLoading && !firebaseData && !localSuggestions,
+    offlineMode,
+    realtimeConnected
   };
 };
 

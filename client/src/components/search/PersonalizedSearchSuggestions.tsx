@@ -16,6 +16,8 @@ import {
   Activity, 
   Brain,
   Wifi,
+  WifiOff,
+  AlertCircle,
   RefreshCw
 } from 'lucide-react';
 
@@ -41,38 +43,20 @@ export function PersonalizedSearchSuggestions({
   const { 
     data: personalizedData, 
     isLoading, 
-    error 
+    error,
+    offlineMode,
+    realtimeConnected 
   } = usePersonalizedSuggestions(maxSuggestions);
   
-  // Monitor real-time data status
+  // Use the connection state from the hook
   useEffect(() => {
-    if (!personalizedData) return;
+    // Update the component state based on the hook's connection state
+    setRealtimeStatus(realtimeConnected ? 'connected' : 'disconnected');
     
-    // Check connection status when data is loaded
-    const checkConnectionStatus = async () => {
-      try {
-        const firebaseSearchModule = await import('@/lib/firebaseSearch');
-        const connected = await firebaseSearchModule.isRealtimeConnected();
-        
-        setRealtimeStatus(connected ? 'connected' : 'disconnected');
-        
-        if (connected) {
-          setHasRealtimeData(true);
-          toast({
-            title: 'Sanntidsdata aktiv',
-            description: 'Søkeforslag blir synkronisert i sanntid',
-            variant: 'default',
-            duration: 3000,
-          });
-        }
-      } catch (error) {
-        console.error('Error checking realtime connection status:', error);
-        setRealtimeStatus('disconnected');
-      }
-    };
-    
-    checkConnectionStatus();
-  }, [personalizedData, toast]);
+    if (realtimeConnected) {
+      setHasRealtimeData(true);
+    }
+  }, [realtimeConnected]);
   
   const handleSuggestionClick = (suggestion: string) => {
     if (onSelectSuggestion) onSelectSuggestion(suggestion);
@@ -177,29 +161,43 @@ export function PersonalizedSearchSuggestions({
         <CardTitle className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-primary" />
           {title}
-          {hasRealtimeData && (
+          {realtimeStatus === 'connected' ? (
             <Badge variant="outline" className="ml-2 gap-1 px-1.5">
               <Wifi className="h-3 w-3 text-green-500" />
               <span className="text-xs">Sanntid</span>
             </Badge>
-          )}
-        </CardTitle>
-        <CardDescription className="flex items-center text-xs text-muted-foreground">
-          {realtimeStatus === 'connected' ? (
-            <>
-              <span className="inline-block h-2 w-2 rounded-full bg-green-500 mr-2"></span>
-              Sanntidsdata aktiv
-            </>
           ) : realtimeStatus === 'disconnected' ? (
-            <>
-              <span className="inline-block h-2 w-2 rounded-full bg-yellow-500 mr-2"></span>
-              Bruker lokal database
-            </>
-          ) : (
-            <>
-              <RefreshCw className="h-3 w-3 animate-spin mr-2" />
-              Initialiserer sanntidsdata...
-            </>
+            <Badge variant="outline" className="ml-2 gap-1 px-1.5 bg-amber-50">
+              <WifiOff className="h-3 w-3 text-amber-500" />
+              <span className="text-xs">Offline</span>
+            </Badge>
+          ) : null}
+        </CardTitle>
+        <CardDescription>
+          <div className="flex items-center text-xs text-muted-foreground">
+            {realtimeStatus === 'connected' ? (
+              <>
+                <span className="inline-block h-2 w-2 rounded-full bg-green-500 mr-2"></span>
+                Sanntidsdata aktiv
+              </>
+            ) : realtimeStatus === 'disconnected' ? (
+              <>
+                <span className="inline-block h-2 w-2 rounded-full bg-amber-500 mr-2"></span>
+                Bruker lokal database
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-3 w-3 animate-spin mr-2" />
+                Initialiserer sanntidsdata...
+              </>
+            )}
+          </div>
+          
+          {realtimeStatus === 'disconnected' && (
+            <div className="mt-1 text-xs text-amber-600 flex items-center gap-1">
+              <AlertCircle className="h-3 w-3" />
+              <span>Jobber i frakoblet modus. Forslag kan være utdaterte.</span>
+            </div>
           )}
         </CardDescription>
       </CardHeader>
