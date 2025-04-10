@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
 import { DEVELOPMENT_MODE } from '@/lib/constants';
+import { Badge } from '@/components/ui/badge';
 
 const signupSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -26,6 +27,16 @@ export default function Signup() {
   const [isLoading, setIsLoading] = useState(false);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const [authMode, setAuthMode] = useState<string>('Checking...');
+  
+  // Display the current authentication mode
+  useEffect(() => {
+    if (DEVELOPMENT_MODE) {
+      setAuthMode('Mock Authentication (Development Mode)');
+    } else {
+      setAuthMode('Real Firebase Authentication');
+    }
+  }, []);
 
   const form = useForm<SignupFormValues>({
     resolver: zodResolver(signupSchema),
@@ -40,23 +51,44 @@ export default function Signup() {
   const onSubmit = async (data: SignupFormValues) => {
     setIsLoading(true);
     try {
-      console.log('Attempting signup with email:', data.email);
+      // Mask email for privacy in logs
+      const maskedEmail = data.email.replace(/^(.{2})(.*)@(.{2})(.*)$/, '$1***@$3***');
+      console.log('Attempting signup with email:', maskedEmail);
       
       // Check if we're in development mode
       if (DEVELOPMENT_MODE) {
         console.log('Using development mode for signup - setting mock user');
-        // In development mode, just set the localStorage flag to enable the mock user
+        
+        // For development mode, create a personalized mock user with the entered data
+        const mockUserData = {
+          displayName: data.name,
+          email: data.email,
+          // Create a unique-ish ID for the mock user in dev mode
+          firebaseId: `dev-${Date.now().toString(36)}`
+        };
+        
+        // Store the mock user data in localStorage for simulated persistence
         localStorage.setItem('devModeLoggedIn', 'true');
+        localStorage.setItem('devUserData', JSON.stringify(mockUserData));
+        
+        // Show success message
         toast({
           title: 'Development mode signup',
           description: `Account created for ${data.name} in development mode`,
           variant: 'default',
         });
-        setLocation('/map');
+        
+        // Short delay to simulate authentication process
+        await new Promise(resolve => setTimeout(resolve, 800));
+        
+        // Force page reload to ensure AuthContext picks up the new user
+        window.location.href = '/map';
         return;
       }
       
-      // Create user with email and password (normal flow)
+      // --- PRODUCTION MODE SIGNUP ---
+      
+      // Create user with email and password
       const userCredential = await signupWithEmail(data.email, data.password);
       
       // Update user profile with display name
@@ -86,6 +118,8 @@ export default function Signup() {
         errorMessage = 'Password is too weak. Please use a stronger password.';
       } else if (error.code === 'auth/network-request-failed') {
         errorMessage = 'Network error. Please check your connection.';
+      } else if (error.code === 'auth/app-deleted' || error.code === 'auth/app-not-authorized') {
+        errorMessage = 'Authentication service is not configured properly. Please contact support.';
       } else if (error.message) {
         errorMessage = error.message;
       }
@@ -103,6 +137,16 @@ export default function Signup() {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="p-6">
+        <div className="text-center mb-6">
+          <Badge 
+            variant={DEVELOPMENT_MODE ? "outline" : "default"}
+            className={`py-1 px-3 ${
+              DEVELOPMENT_MODE ? 'bg-amber-100 text-amber-800 hover:bg-amber-100' : 'bg-green-100 text-green-800 hover:bg-green-100'
+            }`}
+          >
+            {authMode}
+          </Badge>
+        </div>
         <FormField
           control={form.control}
           name="name"

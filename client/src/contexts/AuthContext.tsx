@@ -12,6 +12,14 @@ import { db } from '@/lib/firebase';
 import { User } from '@/types';
 import { DEVELOPMENT_MODE } from '@/lib/constants';
 
+// For development mode only - interface for mock user data
+interface DevUserData {
+  displayName: string;
+  email: string;
+  firebaseId: string;
+  photoURL?: string;
+}
+
 // Session constants
 const SESSION_STORAGE_KEY = 'comemingel_session';
 const SESSION_EXPIRY_HOURS = 24; // Session expires after 24 hours
@@ -104,19 +112,41 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   // Function to handle logout
   const logout = async (): Promise<void> => {
     if (DEVELOPMENT_MODE) {
-      // In development mode, just reset the states
+      // In development mode, clear all dev user data
       setCurrentUser(null);
       setUserProfile(null);
       localStorage.setItem('devModeLoggedIn', 'false');
+      localStorage.removeItem('devUserData'); // Also clear the stored user data
+      
+      // Show a message about dev mode logout
+      console.log("Development mode: logged out mock user");
       
       // Redirect to login page after logout
-      window.location.href = '/login';
+      window.location.href = '/auth';
       return;
     } else {
-      // In normal mode, use Firebase logout
-      await firebaseLogout();
-      window.location.href = '/login';
-      return;
+      try {
+        // In normal mode, use Firebase logout and clear any session data
+        await firebaseLogout();
+        
+        // Clear any Firebase cached data
+        if (window.indexedDB) {
+          // Try to clear IndexedDB storage for Firebase Auth
+          try {
+            indexedDB.deleteDatabase('firebaseLocalStorageDb');
+          } catch (err) {
+            console.warn('Could not clear Firebase IndexedDB:', err);
+          }
+        }
+        
+        // Redirect to login page after logout
+        window.location.href = '/auth';
+      } catch (error) {
+        console.error('Error during logout:', error);
+        
+        // Force a redirect even if logout fails
+        window.location.href = '/auth';
+      }
     }
   };
 
@@ -142,12 +172,24 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         // Set localStorage to true for consistent state
         localStorage.setItem('devModeLoggedIn', 'true');
         
+        // Try to get saved dev user data from localStorage (from signup/login)
+        let storedDevUserData: DevUserData | null = null;
+        try {
+          const devUserDataString = localStorage.getItem('devUserData');
+          if (devUserDataString) {
+            storedDevUserData = JSON.parse(devUserDataString) as DevUserData;
+            console.log("📝 Found stored dev user data:", storedDevUserData.displayName);
+          }
+        } catch (error) {
+          console.warn("Could not parse stored dev user data", error);
+        }
+        
         // Create a fake user for development
         const mockUser = {
-          uid: "dev-user-1",
-          displayName: "Dev User",
-          email: "dev@example.com",
-          photoURL: null,
+          uid: storedDevUserData?.firebaseId || "dev-user-1",
+          displayName: storedDevUserData?.displayName || "Dev User",
+          email: storedDevUserData?.email || "dev@example.com",
+          photoURL: storedDevUserData?.photoURL || null,
         } as unknown as FirebaseUser;
         
         setCurrentUser(mockUser);
@@ -157,7 +199,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           id: mockUser.uid,
           firebaseId: mockUser.uid,
           displayName: mockUser.displayName || "Dev User",
-          username: "devuser",
+          username: storedDevUserData?.email?.split('@')[0] || "devuser",
           email: mockUser.email || "dev@example.com",
           photoURL: mockUser.photoURL || "",
           status: 'online',
