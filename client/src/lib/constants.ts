@@ -1,5 +1,6 @@
-// Set this to false when deploying to production
-export const DEVELOPMENT_MODE = true;
+// Control development mode behavior
+// For security, prefer using import.meta.env to determine if we're in a dev environment
+export const DEVELOPMENT_MODE = import.meta.env.DEV || process.env.NODE_ENV === 'development';
 
 // Firebase configuration constants
 export const FIREBASE_AUTH_PERSISTENCE = true;
