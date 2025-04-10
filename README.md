@@ -274,6 +274,67 @@ When running in development mode, you can:
 1. Use the toggle button in the bottom-right corner to switch between mock and real authentication
 2. Access development-only features by setting `localStorage.setItem('useRealAuth', 'true')` in your browser console
 
+## 🧪 Testing External Services
+
+Comemingel includes test scripts to validate your connection to external services. These scripts help verify that your API keys and configuration are set up correctly.
+
+### Running Tests
+
+You can run tests using our interactive test menu or run individual test scripts directly:
+
+#### Interactive Test Menu
+
+Run the test menu to choose which tests to run:
+
+```bash
+node scripts/run-tests.js
+```
+
+This will display an interactive menu with options to test:
+1. Database Connection
+2. Firebase Configuration
+3. Mapbox API
+4. OpenAI API
+
+You can also run all tests sequentially by selecting the 'Run all tests' option.
+
+#### Individual Test Scripts
+
+You can run individual test scripts directly using the following commands:
+
+##### Database Connection Test
+```bash
+npx tsx scripts/tests/database-test.ts
+```
+This verifies connectivity to PostgreSQL and checks that your schema tables exist.
+
+##### Firebase Configuration Test
+```bash
+npx tsx scripts/tests/firebase-test.ts
+```
+Validates your Firebase configuration and API keys.
+
+##### Mapbox API Test
+```bash
+npx tsx scripts/tests/mapbox-test.ts
+```
+Tests your Mapbox token by performing a simple geocoding request.
+
+##### OpenAI API Test
+```bash
+npx tsx scripts/tests/openai-test.ts
+```
+Verifies your OpenAI API key is working by sending a simple test request.
+
+### Troubleshooting
+
+If tests fail, check the following:
+
+- **Database Connection Issues**: Verify your DATABASE_URL in the .env file
+- **Firebase Configuration**: Ensure your Firebase API key, project ID, and app ID are correct
+- **Mapbox Issues**: Check that your Mapbox token is valid and has the necessary permissions
+- **OpenAI Errors**: Verify your OpenAI API key is valid and has sufficient quota
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

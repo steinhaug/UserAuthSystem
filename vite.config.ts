@@ -15,6 +15,7 @@ export default defineConfig({
           await import("@replit/vite-plugin-cartographer").then((m) =>
             m.cartographer(),
           ),
+        
         ]
       : []),
   ],
