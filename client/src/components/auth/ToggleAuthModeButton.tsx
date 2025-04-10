@@ -33,9 +33,9 @@ export default function ToggleAuthModeButton() {
 
   return (
     <Button 
-      variant="outline"
+      variant={usingRealAuth ? "default" : "outline"}
       size="sm"
-      className="fixed bottom-4 right-4 z-50 text-xs bg-background/80 backdrop-blur-sm border border-border"
+      className={`fixed bottom-4 right-4 z-50 text-sm bg-background/80 backdrop-blur-sm border ${usingRealAuth ? 'border-primary' : 'border-border'} shadow-lg p-4 font-medium transform hover:scale-105 transition-all`}
       onClick={toggleAuthMode}
     >
       {usingRealAuth ? '🔒 Using Real Auth' : '🧪 Using Mock Auth'}
