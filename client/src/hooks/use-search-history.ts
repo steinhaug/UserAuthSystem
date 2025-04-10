@@ -19,6 +19,17 @@ interface HistoryResponse {
   history: SearchHistory[];
 }
 
+interface PersonalizedSuggestionsResponse {
+  suggestions: string[];
+  trending: string[];
+  categories: {
+    favorites: string[];
+    timeBased: string[];
+    trending: string[];
+    preferences: string[];
+  };
+}
+
 interface HistoryItemResponse {
   history: SearchHistory;
 }
@@ -47,6 +58,31 @@ export const useNearbySearchSuggestions = () => {
     queryFn: async () => {
       const data = await apiRequest('/api/search/nearby');
       return (data as unknown as SuggestionsResponse).suggestions || [];
+    }
+  });
+};
+
+// Hook for getting personalized search suggestions based on user history and preferences
+export const usePersonalizedSuggestions = (limit: number = 10) => {
+  return useQuery({
+    queryKey: ['/api/search/personalized', limit],
+    queryFn: async () => {
+      try {
+        const data = await apiRequest(`/api/search/personalized?limit=${limit}`);
+        return data as PersonalizedSuggestionsResponse;
+      } catch (error) {
+        console.error('Error fetching personalized suggestions:', error);
+        return {
+          suggestions: [],
+          trending: [],
+          categories: {
+            favorites: [],
+            timeBased: [],
+            trending: [],
+            preferences: []
+          }
+        };
+      }
     }
   });
 };

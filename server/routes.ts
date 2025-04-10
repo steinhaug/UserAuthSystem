@@ -337,6 +337,132 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return handleApiDatabaseError(res, error);
     }
   }));
+  
+  // Get personalized search suggestions based on user history and behavior
+  app.get('/api/search/personalized', authenticateUser, withAuth(async (req, res) => {
+    try {
+      const userId = req.user.uid;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      
+      // Step 1: Get user's search history
+      const userHistory = await storage.getUserSearchHistory(userId, 50);
+      
+      // Step 2: Get user's activity preferences if available
+      let userPreferences;
+      try {
+        userPreferences = await storage.getUserActivityPreferences(userId);
+      } catch (e) {
+        console.log("Activity preferences not found for user");
+      }
+      
+      // Step 3: Generate personalized suggestions
+      
+      // Extract frequent search terms from user history
+      const searchTerms = userHistory.map(item => item.query);
+      const searchTypes = userHistory
+        .filter(item => item.type)
+        .map(item => item.type);
+      
+      // Count frequency of searches
+      const termFrequency: Record<string, number> = {};
+      searchTerms.forEach(term => {
+        termFrequency[term] = (termFrequency[term] || 0) + 1;
+      });
+      
+      // Count frequency of search types
+      const typeFrequency: Record<string, number> = {};
+      searchTypes.forEach(type => {
+        if (type) {
+          typeFrequency[type] = (typeFrequency[type] || 0) + 1;
+        }
+      });
+      
+      // Filter favorite searches
+      const favorites = userHistory
+        .filter(item => item.favorite)
+        .map(item => item.query);
+      
+      // Generate time-based suggestions
+      const hour = new Date().getHours();
+      const timeBasedSuggestions: string[] = [];
+      
+      // Morning suggestions
+      if (hour >= 6 && hour < 11) {
+        timeBasedSuggestions.push('Morgentrening', 'Frokost-treff', 'Joggetur');
+      }
+      // Lunch suggestions
+      else if (hour >= 11 && hour < 14) {
+        timeBasedSuggestions.push('Lunsj-treff', 'Shopping-tur', 'Kaffepauser');
+      }
+      // Afternoon suggestions
+      else if (hour >= 14 && hour < 18) {
+        timeBasedSuggestions.push('Ettermiddagstur', 'Studiegruppe', 'Fotball');
+      }
+      // Evening suggestions
+      else {
+        timeBasedSuggestions.push('Middag ute', 'Kveldstrening', 'Filmkveld');
+      }
+      
+      // Include preferences-based suggestions if available
+      const preferencesBasedSuggestions: string[] = [];
+      if (userPreferences) {
+        const preferredCategories = userPreferences.preferredCategories || [];
+        const preferredTimeOfDay = userPreferences.preferredTimeOfDay || [];
+        
+        // Map activity types to suggestions based on preferred categories
+        if (preferredCategories.includes('outdoor')) {
+          preferencesBasedSuggestions.push('Friluftsliv', 'Fjelltur', 'Sykling');
+        }
+        if (preferredCategories.includes('sports')) {
+          preferencesBasedSuggestions.push('Fotball', 'Basketball', 'Tennis');
+        }
+        if (preferredCategories.includes('cultural')) {
+          preferencesBasedSuggestions.push('Museum', 'Konserter', 'Kunstutstilling');
+        }
+        if (preferredCategories.includes('social')) {
+          preferencesBasedSuggestions.push('Kaffetreff', 'Middag ute', 'Filmkveld');
+        }
+      }
+      
+      // Trending or popular searches (could be from global stats in a real implementation)
+      const trendingSuggestions = [
+        'Plogging', 
+        'Kajakktur',
+        'Fotballkamp',
+        'Løpetrening',
+        'Yogaklasse',
+        'Sykkeltur'
+      ];
+      
+      // Combine all suggestions, prioritizing favorites and frequent searches
+      let personalizedSuggestions = [
+        ...favorites,
+        ...Object.keys(termFrequency)
+          .sort((a, b) => termFrequency[b] - termFrequency[a])
+          .slice(0, 5),
+        ...preferencesBasedSuggestions,
+        ...timeBasedSuggestions,
+        ...trendingSuggestions
+      ];
+      
+      // Remove duplicates
+      personalizedSuggestions = Array.from(new Set(personalizedSuggestions));
+      
+      // Return limited results
+      return res.json({ 
+        suggestions: personalizedSuggestions.slice(0, limit),
+        trending: trendingSuggestions.slice(0, 3),
+        categories: {
+          favorites: favorites.slice(0, 3),
+          timeBased: timeBasedSuggestions.slice(0, 3),
+          trending: trendingSuggestions.slice(0, 3),
+          preferences: preferencesBasedSuggestions.slice(0, 3)
+        }
+      });
+    } catch (error) {
+      return handleApiDatabaseError(res, error);
+    }
+  }));
 
   app.get('/api/search/preferences', authenticateUser, withAuth(async (req, res) => {
     try {
