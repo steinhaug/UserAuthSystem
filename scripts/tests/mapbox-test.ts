@@ -4,6 +4,18 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 
+// Type definitions to fix TypeScript errors
+interface MapboxFeature {
+  center?: [number, number];
+  [key: string]: any;
+}
+
+interface MapboxResponse {
+  features?: MapboxFeature[];
+  message?: string;
+  [key: string]: any;
+}
+
 // Resolve .env file path
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,7 +53,7 @@ async function testMapbox() {
     const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(testLocation)}.json?access_token=${mapboxToken}`;
     
     const response = await fetch(url);
-    const data = await response.json();
+    const data = await response.json() as MapboxResponse;
     
     if (response.ok) {
       if (data && data.features && data.features.length > 0) {
