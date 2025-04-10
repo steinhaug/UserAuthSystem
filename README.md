@@ -276,7 +276,7 @@ When running in development mode, you can:
 
 ## 🧪 Testing External Services
 
-Comemingel includes test scripts to validate your connection to external services. These scripts help verify that your API keys and configuration are set up correctly.
+Comemingel includes test scripts to validate your connection to external services. These scripts help verify that your API keys and configuration are set up correctly. Alle tester kobler direkte til de faktiske tjenestene (ingen mock-servere eller simulerte responser brukes) for å verifisere at applikasjonen har korrekt tilgang.
 
 ### CLI Commands for Running Tests
 
@@ -503,6 +503,18 @@ Message: Incorrect API key provided
 ```
 
 Fix: Update your OpenAI API key with a valid one from your OpenAI account.
+
+```
+=== Testing OpenAI API Connection ===
+ERROR: Failed to connect to OpenAI API
+Status: 429
+Message: You exceeded your current quota, please check your plan and billing details.
+```
+
+Fix: Your API key is valid but has exceeded its usage quota. Either:
+- Add funds to your OpenAI account
+- Use a different API key with available quota
+- Contact OpenAI support to increase your quota
 
 ## 🤝 Contributing
 

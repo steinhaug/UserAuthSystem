@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, connectAuthEmulator } from 'firebase/auth';
+import { getAuth } from 'firebase/auth';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import * as dotenv from 'dotenv';
 import path from 'path';
