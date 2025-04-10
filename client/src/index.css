@@ -166,7 +166,7 @@
 
 /* Card styling */
 .card {
-  @apply bg-card border border-border/50 rounded-lg shadow-sm overflow-hidden relative;
+  @apply bg-card border border-border/50 rounded-lg shadow-lg overflow-hidden relative;
   transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
 }
 
