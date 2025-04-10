@@ -65,7 +65,7 @@ export const useNearbySearchSuggestions = () => {
 
 // Hook for getting personalized search suggestions based on user history and preferences
 export const usePersonalizedSuggestions = (limit: number = 10) => {
-  const { user } = useAuth() || { user: null };
+  const { currentUser } = useAuth();
   const [firebaseData, setFirebaseData] = useState<PersonalizedSuggestionsResponse | null>(null);
   
   // Server-side personalized suggestions
@@ -105,19 +105,19 @@ export const usePersonalizedSuggestions = (limit: number = 10) => {
   
   // Use Firebase Realtime Database for real-time suggestions
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!currentUser?.uid) return;
     
     // Import Firebase search functions dynamically to avoid SSR issues
     import('@/lib/firebaseSearch').then(({ listenToPersonalizedSuggestions }) => {
       // Set up real-time listener
-      const unsubscribe = listenToPersonalizedSuggestions(user.uid, (data) => {
+      const unsubscribe = listenToPersonalizedSuggestions(currentUser.uid, (data) => {
         setFirebaseData(data);
       });
       
       // Clean up listener on unmount
       return () => unsubscribe();
     });
-  }, [user?.uid]);
+  }, [currentUser?.uid]);
   
   // Combine server data with Firebase data, preferring Firebase when available
   const data = useMemo(() => {
@@ -147,22 +147,40 @@ export const usePersonalizedSuggestions = (limit: number = 10) => {
 export const useSaveSearchHistory = () => {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { currentUser } = useAuth();
 
   return useMutation({
     mutationFn: async (searchData: Omit<InsertSearchHistory, 'userId'>) => {
+      // First, save to the server
       const data = await apiRequest('/api/search/save', {
         method: 'POST',
         data: searchData
       });
+      
+      // Then, save to Firebase Realtime Database if user is authenticated
+      if (currentUser?.uid) {
+        // Import dynamically to avoid SSR issues
+        try {
+          const { saveSearchToFirebase } = await import('@/lib/firebaseSearch');
+          await saveSearchToFirebase(searchData, currentUser.uid);
+        } catch (error) {
+          console.error('Error saving search to Firebase:', error);
+          // We don't throw the error here to avoid interrupting the user experience
+          // The server save was successful, so we consider this a non-critical error
+        }
+      }
+      
       return (data as unknown as SearchHistoryResponse).searchHistory;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/search/history'] });
+      // Also invalidate personalized suggestions to refresh them with new search data
+      queryClient.invalidateQueries({ queryKey: ['/api/search/personalized'] });
     },
     onError: (error) => {
       toast({
-        title: 'Error',
-        description: `Failed to save search: ${error.message}`,
+        title: 'Feil',
+        description: `Kunne ikke lagre søket: ${error.message}`,
         variant: 'destructive'
       });
     }
@@ -271,12 +289,33 @@ export const useSearchHistory = (limit: number = 10) => {
   }, [saveSearchMutation]);
 
   // Toggle favorite status for a search
+  const { currentUser } = useAuth();
+  
   const toggleFavorite = useCallback((searchItem: SearchHistory) => {
+    const newFavoriteStatus = !searchItem.favorite;
+    
+    // Update in database via API
     updateSearchHistoryMutation.mutate({
       id: searchItem.id,
-      data: { favorite: !searchItem.favorite }
+      data: { favorite: newFavoriteStatus }
     });
-  }, [updateSearchHistoryMutation]);
+    
+    // Also update in Firebase if user is authenticated
+    if (currentUser?.uid) {
+      // Import dynamically to avoid SSR issues
+      import('@/lib/firebaseSearch').then(({ toggleSearchFavorite }) => {
+        try {
+          // We need to use the searchId from Firebase which is different from our database ID
+          // So we concatenate the database ID with the user ID to create a unique search history entry ID
+          const firebaseSearchId = `search-${searchItem.id}`;
+          toggleSearchFavorite(currentUser.uid, firebaseSearchId, newFavoriteStatus);
+        } catch (error) {
+          console.error('Error updating favorite status in Firebase:', error);
+          // Non-critical error, don't interrupt user experience
+        }
+      });
+    }
+  }, [updateSearchHistoryMutation, currentUser]);
 
   return {
     history: history || [],

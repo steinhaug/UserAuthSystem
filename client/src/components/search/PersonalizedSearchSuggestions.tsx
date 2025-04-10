@@ -1,9 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { usePersonalizedSuggestions } from '@/hooks/use-search-history';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { 
   Search, 
   Sparkles, 
@@ -11,7 +14,9 @@ import {
   Clock, 
   Star, 
   Activity, 
-  Brain
+  Brain,
+  Wifi,
+  RefreshCw
 } from 'lucide-react';
 
 interface PersonalizedSearchSuggestionsProps {
@@ -28,12 +33,39 @@ export function PersonalizedSearchSuggestions({
   maxSuggestions = 10
 }: PersonalizedSearchSuggestionsProps) {
   const [activeTab, setActiveTab] = useState('all');
+  const [hasRealtimeData, setHasRealtimeData] = useState(false);
+  const [realtimeStatus, setRealtimeStatus] = useState<'connected' | 'disconnected' | 'initializing'>('initializing');
+  const { currentUser } = useAuth();
+  const { toast } = useToast();
   
   const { 
     data: personalizedData, 
     isLoading, 
     error 
   } = usePersonalizedSuggestions(maxSuggestions);
+  
+  // Monitor real-time data status
+  useEffect(() => {
+    if (!personalizedData) return;
+    
+    // Check if data came from Firebase by looking for a special property
+    // This is a simple way to detect where the data came from
+    import('@/lib/firebaseSearch').then(({ isRealtimeConnected }) => {
+      isRealtimeConnected().then(connected => {
+        setRealtimeStatus(connected ? 'connected' : 'disconnected');
+        
+        if (connected) {
+          setHasRealtimeData(true);
+          toast({
+            title: 'Sanntidsdata aktiv',
+            description: 'Søkeforslag blir synkronisert i sanntid',
+            variant: 'default',
+            duration: 3000,
+          });
+        }
+      });
+    });
+  }, [personalizedData, toast]);
   
   const handleSuggestionClick = (suggestion: string) => {
     if (onSelectSuggestion) onSelectSuggestion(suggestion);
@@ -138,7 +170,31 @@ export function PersonalizedSearchSuggestions({
         <CardTitle className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-primary" />
           {title}
+          {hasRealtimeData && (
+            <Badge variant="outline" className="ml-2 gap-1 px-1.5">
+              <Wifi className="h-3 w-3 text-green-500" />
+              <span className="text-xs">Sanntid</span>
+            </Badge>
+          )}
         </CardTitle>
+        <CardDescription className="flex items-center text-xs text-muted-foreground">
+          {realtimeStatus === 'connected' ? (
+            <>
+              <span className="inline-block h-2 w-2 rounded-full bg-green-500 mr-2"></span>
+              Sanntidsdata aktiv
+            </>
+          ) : realtimeStatus === 'disconnected' ? (
+            <>
+              <span className="inline-block h-2 w-2 rounded-full bg-yellow-500 mr-2"></span>
+              Bruker lokal database
+            </>
+          ) : (
+            <>
+              <RefreshCw className="h-3 w-3 animate-spin mr-2" />
+              Initialiserer sanntidsdata...
+            </>
+          )}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab} className="mb-4">
