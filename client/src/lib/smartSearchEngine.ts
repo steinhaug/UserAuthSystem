@@ -320,7 +320,7 @@ export const generateSmartSuggestions = (
   });
   
   // Add category-based suggestions
-  if (userPreferences?.favoriteCategories?.length > 0) {
+  if (userPreferences?.favoriteCategories && userPreferences.favoriteCategories.length > 0) {
     const preferredCategories = userPreferences.favoriteCategories as string[];
     
     preferredCategories.forEach((category: string) => {

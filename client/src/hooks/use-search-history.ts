@@ -94,8 +94,8 @@ export const usePersonalizedSuggestions = (limit: number = 10) => {
     queryKey: ['/api/search/preferences'],
     queryFn: async () => {
       try {
-        const data = await apiRequest('/api/search/preferences');
-        return data;
+        const response = await apiRequest('/api/search/preferences');
+        return response as UserPreferences;
       } catch (error) {
         console.error('Error fetching search preferences:', error);
         return null;
