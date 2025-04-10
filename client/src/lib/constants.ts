@@ -2,6 +2,9 @@
 // For security, prefer using import.meta.env to determine if we're in a dev environment
 export const DEVELOPMENT_MODE = import.meta.env.DEV || process.env.NODE_ENV === 'development';
 
+// Set this to true to use real Firebase authentication even in development mode
+export const USE_REAL_AUTH_IN_DEV = localStorage.getItem('useRealAuth') === 'true';
+
 // Firebase configuration constants
 export const FIREBASE_AUTH_PERSISTENCE = true;
 export const AUTH_STATE_CHANGE_DELAY = 1000;

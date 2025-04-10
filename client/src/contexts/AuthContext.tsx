@@ -10,7 +10,7 @@ import {
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { User } from '@/types';
-import { DEVELOPMENT_MODE } from '@/lib/constants';
+import { DEVELOPMENT_MODE, USE_REAL_AUTH_IN_DEV } from '@/lib/constants';
 
 // For development mode only - interface for mock user data
 interface DevUserData {
@@ -111,22 +111,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   // Function to handle logout
   const logout = async (): Promise<void> => {
-    if (DEVELOPMENT_MODE) {
-      // In development mode, clear all dev user data
-      setCurrentUser(null);
-      setUserProfile(null);
-      localStorage.setItem('devModeLoggedIn', 'false');
-      localStorage.removeItem('devUserData'); // Also clear the stored user data
-      
-      // Show a message about dev mode logout
-      console.log("Development mode: logged out mock user");
-      
-      // Redirect to login page after logout
-      window.location.href = '/auth';
-      return;
-    } else {
+    // If using real auth in dev mode or in production
+    if (!DEVELOPMENT_MODE || USE_REAL_AUTH_IN_DEV) {
       try {
-        // In normal mode, use Firebase logout and clear any session data
+        // Use Firebase logout and clear any session data
         await firebaseLogout();
         
         // Clear any Firebase cached data
@@ -147,12 +135,29 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         // Force a redirect even if logout fails
         window.location.href = '/auth';
       }
+    } 
+    // Using mock authentication in development mode
+    else if (DEVELOPMENT_MODE && !USE_REAL_AUTH_IN_DEV) {
+      // In development mode, clear all dev user data
+      setCurrentUser(null);
+      setUserProfile(null);
+      localStorage.setItem('devModeLoggedIn', 'false');
+      localStorage.removeItem('devUserData'); // Also clear the stored user data
+      
+      // Show a message about dev mode logout
+      console.log("Development mode: logged out mock user");
+      
+      // Redirect to login page after logout
+      window.location.href = '/auth';
+      return;
     }
   };
 
   // Check if we should load the dev user
   const shouldLoadDevUser = () => {
-    if (!DEVELOPMENT_MODE) return false;
+    // If using real auth is enabled, never use dev user
+    if (USE_REAL_AUTH_IN_DEV || !DEVELOPMENT_MODE) return false;
+    
     const devLoggedIn = localStorage.getItem('devModeLoggedIn');
     console.log("Development mode login status:", devLoggedIn);
     
@@ -161,7 +166,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   };
 
   useEffect(() => {
-    if (DEVELOPMENT_MODE) {
+    // If using real auth in dev mode, skip mock user
+    if (DEVELOPMENT_MODE && !USE_REAL_AUTH_IN_DEV) {
       // Check if we should auto-login in development mode
       // Allow auto-login with null/undefined localStorage for better dev experience
       
@@ -219,6 +225,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         setIsLoading(false);
         return;
       }
+    }
+    
+    // If USE_REAL_AUTH_IN_DEV is true, we'll use real Firebase auth even in development mode
+    if (DEVELOPMENT_MODE && USE_REAL_AUTH_IN_DEV) {
+      console.log("Using real Firebase authentication in development mode");
     }
     
     // Listen for auth state changes (normal mode)
