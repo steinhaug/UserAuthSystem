@@ -5,8 +5,15 @@ import { setupVite, serveStatic, log } from "./vite";
 import './firebase-admin';
 // Import AI-related routes
 import openaiRouter from "./openai";
-import geminiRouter from "./gemini";
 import anthropicRouter from "./anthropic";
+
+// Lazy-load Gemini to avoid immediate import errors if package is missing
+let geminiRouter;
+try {
+  geminiRouter = require("./gemini").default;
+} catch (err) {
+  console.warn("Gemini router could not be loaded. This is fine if you're not using Gemini.");
+}
 
 const app = express();
 app.use(express.json());
@@ -52,8 +59,13 @@ app.use((req, res, next) => {
     app.use('/api/ai', openaiRouter);
     console.log('OpenAI API routes mounted at /api/ai');
   } else if (defaultLLM === 'GEMINI') {
-    app.use('/api/ai', geminiRouter);
-    console.log('Gemini API routes mounted at /api/ai');
+    if (geminiRouter) {
+      app.use('/api/ai', geminiRouter);
+      console.log('Gemini API routes mounted at /api/ai');
+    } else {
+      console.warn('Gemini router not available, falling back to OpenAI');
+      app.use('/api/ai', openaiRouter);
+    }
   } else if (defaultLLM === 'CLAUDE') {
     app.use('/api/ai', anthropicRouter);
     console.log('Claude API routes mounted at /api/ai');
