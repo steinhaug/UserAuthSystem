@@ -56,13 +56,15 @@ export const MicroInteractionsProvider: React.FC<{ children: ReactNode }> = ({ c
       localStorage.setItem(`userPoints_${userProfile.firebaseId}`, newTotal.toString());
     }
     
-    // Show a toast notification
-    toast({
-      title: `+${points} poeng!`,
-      description: reason,
-      variant: 'default',
-      className: 'points-reward-toast',
-    });
+    // Only show toast for significant point awards (10+ points)
+    if (points >= 10) {
+      toast({
+        title: `+${points} poeng!`,
+        description: reason,
+        variant: 'default',
+        className: 'points-reward-toast',
+      });
+    }
   };
   
   // Get current user points
