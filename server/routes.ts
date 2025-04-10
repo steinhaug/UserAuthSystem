@@ -254,9 +254,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
       }
       
+      // Check if user exists in database first
+      const user = await storage.getUserByFirebaseId(req.user.uid);
+      if (!user) {
+        log(`User ${req.user.uid} not found in database when saving search history. Attempting to create dev user.`, 'warn');
+        
+        // In development mode, try to create a dev user if it doesn't exist
+        if (req.user.uid === 'dev-user-id') {
+          try {
+            // Create a dev user if it doesn't exist
+            await storage.createUser({
+              firebaseId: 'dev-user-id',
+              username: 'dev_user',
+              email: 'dev@example.com',
+              displayName: 'Dev User'
+              // Schema doesn't include password field
+            });
+            log('Created dev user for search history', 'info');
+          } catch (error: any) {
+            // Ignore duplicate key errors (user might have been created by another request)
+            if (error.code !== 'UNIQUE_CONSTRAINT') {
+              log(`Failed to create dev user: ${error.message}`, 'error');
+              return sendErrorResponse(
+                res,
+                "Cannot save search history: failed to create user",
+                "500",
+                ApiErrorCode.INTERNAL_SERVER_ERROR
+              );
+            }
+          }
+        } else {
+          return sendErrorResponse(
+            res,
+            "User not found",
+            "404",
+            ApiErrorCode.NOT_FOUND
+          );
+        }
+      }
+      
       const searchHistory = await storage.saveSearchHistory(searchDataWithUser);
       return res.status(201).json({ searchHistory });
-    } catch (error) {
+    } catch (error: any) {
+      log(`Error saving search history: ${error.message}`, 'error');
       return handleApiDatabaseError(res, error);
     }
   }));
@@ -364,6 +404,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
       }
       
+      // Check if user exists in database
+      const user = await storage.getUserByFirebaseId(req.user.uid);
+      if (!user) {
+        log(`User ${req.user.uid} not found in database when performing near-me search`, 'warn');
+        
+        // Don't try to save preferences or history if user doesn't exist
+        // Just return results
+        return res.json({ 
+          results: [],
+          location: { latitude, longitude },
+          radius
+        });
+      }
+      
       // Update user's last location in search preferences
       const userPrefs = await storage.getUserSearchPreferences(req.user.uid);
       if (userPrefs) {
@@ -389,7 +443,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         location: { latitude, longitude },
         radius
       });
-    } catch (error) {
+    } catch (error: any) {
+      log(`Error performing near-me search: ${error.message}`, 'error');
       return handleApiDatabaseError(res, error);
     }
   }));
