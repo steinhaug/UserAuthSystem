@@ -10,7 +10,7 @@ interface SearchPattern {
   locations: Record<string, number>;
 }
 
-interface SmartSuggestion {
+export interface SmartSuggestion {
   query: string;
   score: number;
   reason: string;
@@ -18,7 +18,7 @@ interface SmartSuggestion {
   source: 'history' | 'pattern' | 'trending' | 'time' | 'location' | 'preferences';
 }
 
-interface UserPreferences {
+export interface UserPreferences {
   favoriteCategories?: string[];
   lastLocation?: {
     latitude: number;

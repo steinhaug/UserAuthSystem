@@ -4,6 +4,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { queryClient } from '@/lib/queryClient';
 import { InsertSearchHistory, SearchHistory } from '@shared/schema';
+import type { UserPreferences } from '@/lib/smartSearchEngine';
 
 
 import { apiRequest } from '@/lib/queryClient';
@@ -90,7 +91,7 @@ export const usePersonalizedSuggestions = (limit: number = 10) => {
   });
   
   // Query for user preferences
-  const { data: preferencesData } = useQuery({
+  const { data: preferencesData } = useQuery<UserPreferences | undefined>({
     queryKey: ['/api/search/preferences'],
     queryFn: async () => {
       try {
@@ -98,7 +99,7 @@ export const usePersonalizedSuggestions = (limit: number = 10) => {
         return response as UserPreferences;
       } catch (error) {
         console.error('Error fetching search preferences:', error);
-        return null;
+        return undefined;
       }
     }
   });
@@ -120,7 +121,7 @@ export const usePersonalizedSuggestions = (limit: number = 10) => {
         // Generate suggestions
         const smartSuggestions = generateSmartSuggestions(
           historyData,
-          preferencesData,
+          preferencesData || undefined,
           Math.max(10, limit)
         );
         
