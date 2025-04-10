@@ -39,54 +39,36 @@ export function SearchHistory({
     history, 
     isLoadingHistory, 
     toggleFavorite, 
-    performSearch 
+    performSearch,
+    syncHistoryToFirebase,
+    isSyncingToFirebase,
+    isRealtimeConnected
   } = useSearchHistory(limit);
   
-  // Check if Firebase sync is available
+  // Update component state based on Firebase connection
   useEffect(() => {
-    const checkSyncStatus = async () => {
-      if (DEVELOPMENT_MODE) {
-        setIsSyncAvailable(false);
-        return;
-      }
-      
-      try {
-        const firebaseSearchModule = await import('@/lib/firebaseSearch');
-        const connected = await firebaseSearchModule.isRealtimeConnected();
-        setRealtimeConnection(connected);
-        setIsSyncAvailable(connected && history.length > 0);
-      } catch (error) {
-        console.error('Error checking Firebase sync status:', error);
-        setIsSyncAvailable(false);
-      }
-    };
-    
-    checkSyncStatus();
-  }, [history]);
+    setRealtimeConnection(isRealtimeConnected);
+    setIsSyncAvailable(isRealtimeConnected && history.length > 0);
+  }, [history, isRealtimeConnected]);
   
+  // Update sync status when Firebase sync is in progress
+  useEffect(() => {
+    if (isSyncingToFirebase) {
+      setSyncStatus('syncing');
+    }
+  }, [isSyncingToFirebase]);
+  
+  // Handle Firebase sync with our hook's implementation
   const syncToFirebase = async () => {
     if (!isSyncAvailable || DEVELOPMENT_MODE) return;
     
     try {
       setSyncStatus('syncing');
       
-      const { syncSearchHistoryToFirebase, markSearchDataMigrated } = await import('@/lib/firebaseSearch');
-      const user = JSON.parse(localStorage.getItem('user') || '{}');
-      const userId = user.uid || 'dev-user';
+      const success = await syncHistoryToFirebase();
       
-      // Sync the search history
-      const syncResult = await syncSearchHistoryToFirebase(userId, history);
-      
-      if (syncResult) {
-        // Mark the data as migrated
-        await markSearchDataMigrated(userId);
-        
+      if (success) {
         setSyncStatus('synced');
-        toast({
-          title: 'Søkehistorikk synkronisert',
-          description: `${history.length} søk er nå synkronisert til skyen`,
-          variant: 'default',
-        });
       } else {
         throw new Error('Kunne ikke synkronisere søkehistorikk');
       }
