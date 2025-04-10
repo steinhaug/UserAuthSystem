@@ -51,7 +51,8 @@ async function testOpenAI() {
     if (response && response.choices && response.choices.length > 0) {
       console.log('\x1b[32m✓ OpenAI API request successful\x1b[0m');
       console.log('Response preview:');
-      console.log(`\x1b[33m${response.choices[0].message.content.trim().substring(0, 100)}...\x1b[0m`);
+      const content = response.choices[0].message.content || '';
+      console.log(`\x1b[33m${content.trim().substring(0, 100)}...\x1b[0m`);
       
       // Show API usage information
       if (response.usage) {

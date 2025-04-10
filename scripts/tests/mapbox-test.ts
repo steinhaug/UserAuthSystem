@@ -44,16 +44,20 @@ async function testMapbox() {
     const data = await response.json();
     
     if (response.ok) {
-      if (data.features && data.features.length > 0) {
+      if (data && data.features && data.features.length > 0) {
         const place = data.features[0];
+        const center = place.center || ['unknown', 'unknown'];
         console.log(`\x1b[32m✓ Mapbox API request successful\x1b[0m`);
-        console.log(`Geocoded "${testLocation}" to coordinates: [${place.center.join(', ')}]`);
+        console.log(`Geocoded "${testLocation}" to coordinates: [${center.join(', ')}]`);
       } else {
         console.log(`\x1b[33m⚠ Mapbox API returned no results for "${testLocation}"\x1b[0m`);
       }
     } else {
       console.error(`\x1b[31mERROR: Mapbox API request failed with status ${response.status}\x1b[0m`);
-      console.error(`Error message: ${data.message || 'Unknown error'}`);
+      const errorMessage = typeof data === 'object' && data !== null && 'message' in data 
+        ? data.message 
+        : 'Unknown error';
+      console.error(`Error message: ${errorMessage}`);
       process.exit(1);
     }
     
